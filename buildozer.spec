@@ -234,9 +234,9 @@ android.archs = arm64-v8a
 # p4a_recipes_dir =
 
 # (str) Use a local p4a install instead of git-cloning kivy/python-for-android.
-#   Points to the in-WSL pre-staged copy at /root/python-for-android.
-#   This skips the slow git clone of p4a from GitHub.
-p4a.source_dir = /root/python-for-android
+#   Path uses /home/runner (Actions runner home, NOT /root) to avoid
+#   permission errors on the non-root runner.
+p4a.source_dir = /home/runner/.buildozer/android/platform/python-for-android
 
 # (str) python-for-android recipe to use for the project
 # p4a =

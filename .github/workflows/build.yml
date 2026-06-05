@@ -61,6 +61,8 @@ jobs:
           chmod -R 777 /home/runner/.buildozer || true
           # Also chmod current dir for build artifacts
           chmod -R 777 . || true
+          # Configure git to use Gitee mirror (in case p4a needs to clone)
+          git config --global url."https://gitee.com/mirrors/".insteadOf "https://github.com/" || true
 
       - name: Install system dependencies
         run: |
