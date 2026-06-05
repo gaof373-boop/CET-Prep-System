@@ -27,6 +27,17 @@ jobs:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
 
+    env:
+      # Buildozer defaults to /root but GitHub Actions runners use /home/runner
+      # and /root/ might not be writable. Set HOME explicitly.
+      HOME: /home/runner
+      BUILDOZER_HOME: /home/runner/.buildozer
+      # Make sure we can write to /root/python-for-android if it exists
+      ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+      ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
+      ANDROIDAPI: 33
+      NDKAPI: 21
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -35,6 +46,28 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Prepare directories and fix permissions
+        run: |
+          # GitHub Actions runner runs as non-root. Buildozer hardcodes
+          # '/root/python-for-android' and tries to stat it. Make /root
+          # traversable so Path.exists() can stat the child.
+          sudo chmod 755 /root || true
+          # Clean up any old /root/python-for-android that might be read-only
+          sudo rm -rf /root/python-for-android /root/.buildozer 2>/dev/null || true
+          # Pre-create dirs to avoid permission issues
+          mkdir -p /home/runner/.buildozer
+          # Make sure cwd is writable
+          chmod -R 777 /home/runner/.buildozer || true
+          # Also chmod current dir for build artifacts
+          chmod -R 777 . || true
+          # Configure git to use Gitee mirror (in case p4a needs to clone).
+          # Need .git suffix for Gitee mirrors. Use a different rewrite rule
+          # that adds .git and routes through Gitee.
+          git config --global url."https://gitee.com/mirrors/kivy/python-for-android".insteadOf "https://github.com/kivy/python-for-android" || true
+          git config --global url."https://gitee.com/mirrors/libsdl-org/SDL_image".insteadOf "https://github.com/libsdl-org/SDL_image" || true
+          # Generic fallback: route ALL github.com URLs through gitee
+          git config --global url."https://gitee.com/mirrors/".insteadOf "https://github.com/" || true
 
       - name: Install system dependencies
         run: |
@@ -54,14 +87,27 @@ jobs:
 
       - name: Build APK
         run: |
-          yes | buildozer android ${{ github.event.inputs.mode || 'debug' }}
+          yes | buildozer android ${{ github.event.inputs.mode || 'debug' }} 2>&1 | tee /tmp/build.log
+          # Always upload the log even on failure
+          echo "BUILD_LOG_END"
+        continue-on-error: true
 
       - name: List APK output
+        if: always()
         run: |
           echo "## APK Output" >> $GITHUB_STEP_SUMMARY
-          ls -lh bin/*.apk 2>/dev/null | tee -a $GITHUB_STEP_SUMMARY
+          ls -lh bin/*.apk 2>/dev/null | tee -a $GITHUB_STEP_SUMMARY || echo "No APK found"
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "Total APK count: $(ls bin/*.apk 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_id }}
+          path: /tmp/build.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4

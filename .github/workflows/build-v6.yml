@@ -1,0 +1,56 @@
+name: Build APK v6 (debug log from p4a)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
+    env:
+      ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+      ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r28c
+      ANDROIDAPI: 33
+      NDKAPI: 21
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential git ffmpeg cmake \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            zlib1g-dev openjdk-17-jdk unzip zip autoconf automake libtool pkg-config
+
+      - name: Fix /root
+        run: |
+          sudo chmod 755 /root || true
+          sudo rm -rf /root/python-for-android /root/.buildozer 2>/dev/null || true
+          mkdir -p /home/runner/.buildozer
+
+      - name: Run buildozer debug
+        run: |
+          yes | buildozer android debug 2>&1 | tee /tmp/full-build.log
+        continue-on-error: true
+
+      - name: Dump p4a stderr if any
+        if: always()
+        run: |
+          echo "=== p4a output ==="
+          grep -aE "error|Error|Exception|fatal|STDERR|failed" /tmp/full-build.log | head -20
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-v6-logs-${{ github.run_id }}
+          path: /tmp/full-build.log
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CET-ZhiSheng-arm64
+          path: .buildozer/bin/*.apk
+          if-no-files-found: warn

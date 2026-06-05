@@ -1,0 +1,109 @@
+name: Build CET Zhisheng APK v2
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'mobile_main.py'
+      - 'core/**'
+      - 'database/**'
+      - 'buildozer.spec'
+      - '.github/workflows/build-v2.yml'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Build mode'
+        required: true
+        type: choice
+        default: debug
+        options:
+          - debug
+          - release
+
+jobs:
+  build:
+    name: Build APK (${{ github.event.inputs.mode || 'debug' }})
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    env:
+      HOME: /home/runner
+      ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+      ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
+      ANDROIDAPI: 33
+      NDKAPI: 21
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential git ffmpeg \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev \
+            libsdl2-ttf-dev libportmidi-dev libswscale-dev \
+            libavformat-dev libavcodec-dev zlib1g-dev \
+            openjdk-17-jdk unzip zip \
+            autoconf automake libtool pkg-config \
+            cmake python3-dev
+
+      - name: Install buildozer
+        run: pip install --upgrade buildozer cython
+
+      - name: Fix permissions and pre-clone p4a
+        run: |
+          # Make /root traversable
+          sudo chmod 755 /root || true
+          sudo rm -rf /root/python-for-android /root/.buildozer 2>/dev/null || true
+          # Clone p4a from the right source (use a token-less clone via pip-or-git)
+          P4A_DIR=/home/runner/.buildozer/android/platform/python-for-android
+          mkdir -p $(dirname $P4A_DIR)
+          # Option A: clone from GitHub (might work in Actions)
+          git clone https://github.com/kivy/python-for-android.git $P4A_DIR 2>&1 || true
+          # If clone failed, create dummy dir so buildozer doesn't crash
+          if [ ! -d "$P4A_DIR" ]; then
+            echo "p4a clone failed, trying pip install..."
+            pip install --target=$P4A_DIR python-for-android 2>&1 || true
+            mkdir -p $P4A_DIR
+          fi
+          # Pre-create dirs
+          mkdir -p /home/runner/.buildozer
+          chmod -R 777 /home/runner/.buildozer .
+          # Write p4a.source_dir into buildozer.spec
+          sed -i "s|# p4a.source_dir.*|p4a.source_dir = $P4A_DIR|" buildozer.spec
+
+      - name: Build APK
+        run: |
+          yes | buildozer android ${{ github.event.inputs.mode || 'debug' }} 2>&1 | tee /tmp/build.log
+        continue-on-error: true
+
+      - name: List APK output
+        if: always()
+        run: |
+          echo "## APK Output" >> $GITHUB_STEP_SUMMARY
+          ls -lh bin/*.apk 2>/dev/null | tee -a $GITHUB_STEP_SUMMARY || echo "No APK found"
+          echo "Total APK: $(ls bin/*.apk 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ github.run_id }}
+          path: /tmp/build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cet-zhisheng-apk-debug
+          path: .buildozer/bin/*.apk
+          if-no-files-found: warn
+          retention-days: 30
