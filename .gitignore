@@ -11,6 +11,8 @@ dist/
 
 # PyInstaller
 *.spec
+# buildozer.spec 必须纳入版本控制（CI 端会 sed 它）
+!buildozer.spec
 
 # Buildozer / p4a
 .buildozer/
