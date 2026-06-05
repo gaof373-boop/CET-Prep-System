@@ -49,13 +49,18 @@ jobs:
 
       - name: Prepare directories and fix permissions
         run: |
-          # Pre-create dirs to avoid permission issues
-          mkdir -p $HOME/.buildozer
+          # GitHub Actions runner runs as non-root. Buildozer hardcodes
+          # '/root/python-for-android' and tries to stat it. Make /root
+          # traversable so Path.exists() can stat the child.
+          sudo chmod 755 /root || true
           # Clean up any old /root/python-for-android that might be read-only
-          sudo rm -rf /root/python-for-android 2>/dev/null || true
-          sudo rm -rf /root/.buildozer 2>/dev/null || true
+          sudo rm -rf /root/python-for-android /root/.buildozer 2>/dev/null || true
+          # Pre-create dirs to avoid permission issues
+          mkdir -p /home/runner/.buildozer
           # Make sure cwd is writable
-          chmod -R 777 $HOME/.buildozer || true
+          chmod -R 777 /home/runner/.buildozer || true
+          # Also chmod current dir for build artifacts
+          chmod -R 777 . || true
 
       - name: Install system dependencies
         run: |
