@@ -10,7 +10,7 @@ dist/
 .cache/
 
 # PyInstaller
-*.spec
+# *.spec (allow buildozer.spec)
 
 # Buildozer / p4a
 .buildozer/
