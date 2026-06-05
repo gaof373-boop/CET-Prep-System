@@ -1,0 +1,1 @@
+"""Per-section view modules."""
