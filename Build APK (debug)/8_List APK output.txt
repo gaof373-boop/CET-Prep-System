@@ -1,0 +1,18 @@
+﻿2026-06-05T10:21:00.1056169Z ##[group]Run echo "## APK Output" >> $GITHUB_STEP_SUMMARY
+2026-06-05T10:21:00.1056602Z [36;1mecho "## APK Output" >> $GITHUB_STEP_SUMMARY[0m
+2026-06-05T10:21:00.1057052Z [36;1mls -lh bin/*.apk 2>/dev/null | tee -a $GITHUB_STEP_SUMMARY || echo "No APK found"[0m
+2026-06-05T10:21:00.1057573Z [36;1mecho "Total APK: $(ls bin/*.apk 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY[0m
+2026-06-05T10:21:00.1112016Z shell: /usr/bin/bash -e {0}
+2026-06-05T10:21:00.1112277Z env:
+2026-06-05T10:21:00.1112472Z   HOME: /home/runner
+2026-06-05T10:21:00.1112802Z   ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+2026-06-05T10:21:00.1113299Z   ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
+2026-06-05T10:21:00.1113695Z   ANDROIDAPI: 33
+2026-06-05T10:21:00.1113898Z   NDKAPI: 21
+2026-06-05T10:21:00.1114164Z   pythonLocation: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:21:00.1114613Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib/pkgconfig
+2026-06-05T10:21:00.1115099Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:21:00.1115500Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:21:00.1115895Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:21:00.1116293Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib
+2026-06-05T10:21:00.1116629Z ##[endgroup]

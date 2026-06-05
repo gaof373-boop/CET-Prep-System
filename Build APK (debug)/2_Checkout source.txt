@@ -1,0 +1,78 @@
+﻿2026-06-05T10:06:38.9711416Z ##[group]Run actions/checkout@v4
+2026-06-05T10:06:38.9712346Z with:
+2026-06-05T10:06:38.9712824Z   repository: gaof373-boop/CET-Prep-System
+2026-06-05T10:06:38.9717454Z   token: ***
+2026-06-05T10:06:38.9717879Z   ssh-strict: true
+2026-06-05T10:06:38.9718302Z   ssh-user: git
+2026-06-05T10:06:38.9718731Z   persist-credentials: true
+2026-06-05T10:06:38.9719208Z   clean: true
+2026-06-05T10:06:38.9719690Z   sparse-checkout-cone-mode: true
+2026-06-05T10:06:38.9720197Z   fetch-depth: 1
+2026-06-05T10:06:38.9720821Z   fetch-tags: false
+2026-06-05T10:06:38.9721273Z   show-progress: true
+2026-06-05T10:06:38.9721722Z   lfs: false
+2026-06-05T10:06:38.9722118Z   submodules: false
+2026-06-05T10:06:38.9722552Z   set-safe-directory: true
+2026-06-05T10:06:38.9723274Z env:
+2026-06-05T10:06:38.9723681Z   HOME: /home/runner
+2026-06-05T10:06:38.9724271Z   ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+2026-06-05T10:06:38.9725127Z   ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
+2026-06-05T10:06:38.9726013Z   ANDROIDAPI: 33
+2026-06-05T10:06:38.9726423Z   NDKAPI: 21
+2026-06-05T10:06:38.9726814Z ##[endgroup]
+2026-06-05T10:06:39.0856737Z Syncing repository: gaof373-boop/CET-Prep-System
+2026-06-05T10:06:39.0858654Z ##[group]Getting Git version info
+2026-06-05T10:06:39.0859496Z Working directory is '/home/runner/work/CET-Prep-System/CET-Prep-System'
+2026-06-05T10:06:39.0860558Z [command]/usr/bin/git version
+2026-06-05T10:06:39.0961698Z git version 2.54.0
+2026-06-05T10:06:39.0989288Z ##[endgroup]
+2026-06-05T10:06:39.1018289Z Temporarily overriding HOME='/home/runner/work/_temp/84a95310-1dd8-4b97-9364-c530fcefce0e' before making global git config changes
+2026-06-05T10:06:39.1020405Z Adding repository directory to the temporary git global config as a safe directory
+2026-06-05T10:06:39.1026555Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/CET-Prep-System/CET-Prep-System
+2026-06-05T10:06:39.1066318Z Deleting the contents of '/home/runner/work/CET-Prep-System/CET-Prep-System'
+2026-06-05T10:06:39.1070145Z ##[group]Initializing the repository
+2026-06-05T10:06:39.1075928Z [command]/usr/bin/git init /home/runner/work/CET-Prep-System/CET-Prep-System
+2026-06-05T10:06:39.1203561Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-06-05T10:06:39.1205484Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-06-05T10:06:39.1207140Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-06-05T10:06:39.1208511Z hint: call:
+2026-06-05T10:06:39.1209268Z hint:
+2026-06-05T10:06:39.1210185Z hint: 	git config --global init.defaultBranch <name>
+2026-06-05T10:06:39.1211642Z hint:
+2026-06-05T10:06:39.1212695Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-06-05T10:06:39.1214451Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-06-05T10:06:39.1215744Z hint:
+2026-06-05T10:06:39.1216485Z hint: 	git branch -m <name>
+2026-06-05T10:06:39.1217315Z hint:
+2026-06-05T10:06:39.1218475Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-06-05T10:06:39.1220533Z Initialized empty Git repository in /home/runner/work/CET-Prep-System/CET-Prep-System/.git/
+2026-06-05T10:06:39.1223895Z [command]/usr/bin/git remote add origin https://github.com/gaof373-boop/CET-Prep-System
+2026-06-05T10:06:39.1260085Z ##[endgroup]
+2026-06-05T10:06:39.1261668Z ##[group]Disabling automatic garbage collection
+2026-06-05T10:06:39.1265452Z [command]/usr/bin/git config --local gc.auto 0
+2026-06-05T10:06:39.1297542Z ##[endgroup]
+2026-06-05T10:06:39.1298839Z ##[group]Setting up auth
+2026-06-05T10:06:39.1305937Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-06-05T10:06:39.1341622Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-06-05T10:06:39.1725501Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-06-05T10:06:39.1758722Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-06-05T10:06:39.2000898Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-06-05T10:06:39.2044574Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-06-05T10:06:39.2287701Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-06-05T10:06:39.2324221Z ##[endgroup]
+2026-06-05T10:06:39.2325172Z ##[group]Fetching the repository
+2026-06-05T10:06:39.2332666Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +bbf35fa8f45ec1386a36f23424bec536c623f5d3:refs/remotes/origin/master
+2026-06-05T10:06:39.8296387Z From https://github.com/gaof373-boop/CET-Prep-System
+2026-06-05T10:06:39.8298618Z  * [new ref]         bbf35fa8f45ec1386a36f23424bec536c623f5d3 -> origin/master
+2026-06-05T10:06:39.8329939Z ##[endgroup]
+2026-06-05T10:06:39.8331837Z ##[group]Determining the checkout info
+2026-06-05T10:06:39.8333395Z ##[endgroup]
+2026-06-05T10:06:39.8336807Z [command]/usr/bin/git sparse-checkout disable
+2026-06-05T10:06:39.8378730Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-06-05T10:06:39.8406916Z ##[group]Checking out the ref
+2026-06-05T10:06:39.8409871Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
+2026-06-05T10:06:39.9204331Z Reset branch 'master'
+2026-06-05T10:06:39.9206872Z branch 'master' set up to track 'origin/master'.
+2026-06-05T10:06:39.9219139Z ##[endgroup]
+2026-06-05T10:06:39.9268546Z [command]/usr/bin/git log -1 --format=%H
+2026-06-05T10:06:39.9295506Z bbf35fa8f45ec1386a36f23424bec536c623f5d3

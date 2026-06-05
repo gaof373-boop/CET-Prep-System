@@ -1,0 +1,63 @@
+name: Build CET APK v4 (full pipeline, no root)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Build mode'
+        type: choice
+        default: debug
+        options: [debug, release]
+
+jobs:
+  apk:
+    name: Full Pipeline
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential git ffmpeg cmake \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
+            zlib1g-dev openjdk-8-jdk unzip zip \
+            autoconf automake libtool pkg-config python3-dev
+          # Force Java 8
+          sudo update-alternatives --set java /usr/lib/jvm/java-8-openjdk-amd64/jre/bin/java || true
+          java -version
+
+      - name: Install buildozer
+        run: pip install --upgrade buildozer cython
+
+      - name: Fix /root permission
+        run: |
+          sudo chmod 755 /root || true
+          sudo rm -rf /root/python-for-android /root/.buildozer 2>/dev/null || true
+          mkdir -p /home/runner/.buildozer
+
+      - name: Build APK
+        run: |
+          yes | buildozer android debug 2>&1 | tee /tmp/build.log
+        continue-on-error: true
+
+      - name: Upload all logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-v4-${{ github.run_id }}
+          path: /tmp/build.log
+          if-no-files-found: ignore
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CET-ZhiSheng-arm64-v8a-debug
+          path: bin/*.apk
+          if-no-files-found: warn

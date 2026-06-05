@@ -1,0 +1,18 @@
+﻿2026-06-05T10:06:39.9670364Z ##[group]Run actions/setup-python@v5
+2026-06-05T10:06:39.9671757Z with:
+2026-06-05T10:06:39.9672556Z   python-version: 3.11
+2026-06-05T10:06:39.9673490Z   check-latest: false
+2026-06-05T10:06:39.9686009Z   token: ***
+2026-06-05T10:06:39.9686879Z   update-environment: true
+2026-06-05T10:06:39.9687889Z   allow-prereleases: false
+2026-06-05T10:06:39.9688877Z   freethreaded: false
+2026-06-05T10:06:39.9756980Z env:
+2026-06-05T10:06:39.9758426Z   HOME: /home/runner
+2026-06-05T10:06:39.9760328Z   ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+2026-06-05T10:06:39.9762665Z   ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
+2026-06-05T10:06:39.9764249Z   ANDROIDAPI: 33
+2026-06-05T10:06:39.9765064Z   NDKAPI: 21
+2026-06-05T10:06:39.9765831Z ##[endgroup]
+2026-06-05T10:06:40.1617244Z ##[group]Installed versions
+2026-06-05T10:06:40.1724084Z Successfully set up CPython (3.11.15)
+2026-06-05T10:06:40.1725281Z ##[endgroup]

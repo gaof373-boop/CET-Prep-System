@@ -1,0 +1,35 @@
+﻿2026-06-05T10:07:25.4901484Z ##[group]Run # Make /root traversable
+2026-06-05T10:07:25.4901890Z [36;1m# Make /root traversable[0m
+2026-06-05T10:07:25.4902178Z [36;1msudo chmod 755 /root || true[0m
+2026-06-05T10:07:25.4902603Z [36;1msudo rm -rf /root/python-for-android /root/.buildozer 2>/dev/null || true[0m
+2026-06-05T10:07:25.4903179Z [36;1m# Clone p4a from the right source (use a token-less clone via pip-or-git)[0m
+2026-06-05T10:07:25.4903733Z [36;1mP4A_DIR=/home/runner/.buildozer/android/platform/python-for-android[0m
+2026-06-05T10:07:25.4904164Z [36;1mmkdir -p $(dirname $P4A_DIR)[0m
+2026-06-05T10:07:25.4904503Z [36;1m# Option A: clone from GitHub (might work in Actions)[0m
+2026-06-05T10:07:25.4905019Z [36;1mgit clone https://github.com/kivy/python-for-android.git $P4A_DIR 2>&1 || true[0m
+2026-06-05T10:07:25.4905575Z [36;1m# If clone failed, create dummy dir so buildozer doesn't crash[0m
+2026-06-05T10:07:25.4905938Z [36;1mif [ ! -d "$P4A_DIR" ]; then[0m
+2026-06-05T10:07:25.4906248Z [36;1m  echo "p4a clone failed, trying pip install..."[0m
+2026-06-05T10:07:25.4906714Z [36;1m  pip install --target=$P4A_DIR python-for-android 2>&1 || true[0m
+2026-06-05T10:07:25.4907099Z [36;1m  mkdir -p $P4A_DIR[0m
+2026-06-05T10:07:25.4907331Z [36;1mfi[0m
+2026-06-05T10:07:25.4907520Z [36;1m# Pre-create dirs[0m
+2026-06-05T10:07:25.4907771Z [36;1mmkdir -p /home/runner/.buildozer[0m
+2026-06-05T10:07:25.4908074Z [36;1mchmod -R 777 /home/runner/.buildozer .[0m
+2026-06-05T10:07:25.4908410Z [36;1m# Write p4a.source_dir into buildozer.spec[0m
+2026-06-05T10:07:25.4908832Z [36;1msed -i "s|# p4a.source_dir.*|p4a.source_dir = $P4A_DIR|" buildozer.spec[0m
+2026-06-05T10:07:25.4963978Z shell: /usr/bin/bash -e {0}
+2026-06-05T10:07:25.4964230Z env:
+2026-06-05T10:07:25.4964415Z   HOME: /home/runner
+2026-06-05T10:07:25.4964725Z   ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+2026-06-05T10:07:25.4965207Z   ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
+2026-06-05T10:07:25.4965583Z   ANDROIDAPI: 33
+2026-06-05T10:07:25.4965779Z   NDKAPI: 21
+2026-06-05T10:07:25.4966037Z   pythonLocation: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:07:25.4966484Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib/pkgconfig
+2026-06-05T10:07:25.4966914Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:07:25.4967295Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:07:25.4967674Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:07:25.4968059Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib
+2026-06-05T10:07:25.4968379Z ##[endgroup]
+2026-06-05T10:07:25.5255166Z Cloning into '/home/runner/.buildozer/android/platform/python-for-android'...

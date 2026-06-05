@@ -1,0 +1,33 @@
+﻿2026-06-05T10:21:00.1292652Z ##[group]Run actions/upload-artifact@v4
+2026-06-05T10:21:00.1292949Z with:
+2026-06-05T10:21:00.1293142Z   name: build-log-27008720534
+2026-06-05T10:21:00.1293379Z   path: /tmp/build.log
+2026-06-05T10:21:00.1293604Z   if-no-files-found: ignore
+2026-06-05T10:21:00.1293831Z   retention-days: 7
+2026-06-05T10:21:00.1294035Z   compression-level: 6
+2026-06-05T10:21:00.1294245Z   overwrite: false
+2026-06-05T10:21:00.1294449Z   include-hidden-files: false
+2026-06-05T10:21:00.1294669Z env:
+2026-06-05T10:21:00.1294841Z   HOME: /home/runner
+2026-06-05T10:21:00.1295134Z   ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+2026-06-05T10:21:00.1295770Z   ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r25b
+2026-06-05T10:21:00.1296159Z   ANDROIDAPI: 33
+2026-06-05T10:21:00.1296358Z   NDKAPI: 21
+2026-06-05T10:21:00.1296611Z   pythonLocation: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:21:00.1297030Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib/pkgconfig
+2026-06-05T10:21:00.1297474Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:21:00.1297843Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:21:00.1298216Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.11.15/x64
+2026-06-05T10:21:00.1298591Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.11.15/x64/lib
+2026-06-05T10:21:00.1298903Z ##[endgroup]
+2026-06-05T10:21:00.3511880Z With the provided path, there will be 1 file uploaded
+2026-06-05T10:21:00.3512448Z Artifact name is valid!
+2026-06-05T10:21:00.3512692Z Root directory input is valid!
+2026-06-05T10:21:00.6886537Z Beginning upload of artifact content to blob storage
+2026-06-05T10:21:01.0026934Z Uploaded bytes 10156
+2026-06-05T10:21:01.0833697Z Finished uploading artifact content to blob storage!
+2026-06-05T10:21:01.0837341Z SHA256 digest of uploaded artifact zip is 795be87d6b479c0e8d54d070f5351d3d0174d9587877e14201754f4f879a94f8
+2026-06-05T10:21:01.0838894Z Finalizing artifact upload
+2026-06-05T10:21:01.3113004Z Artifact build-log-27008720534.zip successfully finalized. Artifact ID 7434274551
+2026-06-05T10:21:01.3114516Z Artifact build-log-27008720534 has been successfully uploaded! Final size is 10156 bytes. Artifact ID is 7434274551
+2026-06-05T10:21:01.3121875Z Artifact download URL: https://github.com/gaof373-boop/CET-Prep-System/actions/runs/27008720534/artifacts/7434274551
