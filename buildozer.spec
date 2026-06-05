@@ -13,7 +13,7 @@
 [app]
 
 # (str) Title of your application
-title = CET智胜系统
+title = CET Zhisheng
 
 # (str) Package name
 package.name = cet_zhisheng
