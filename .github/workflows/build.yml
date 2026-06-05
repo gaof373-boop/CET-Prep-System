@@ -61,7 +61,12 @@ jobs:
           chmod -R 777 /home/runner/.buildozer || true
           # Also chmod current dir for build artifacts
           chmod -R 777 . || true
-          # Configure git to use Gitee mirror (in case p4a needs to clone)
+          # Configure git to use Gitee mirror (in case p4a needs to clone).
+          # Need .git suffix for Gitee mirrors. Use a different rewrite rule
+          # that adds .git and routes through Gitee.
+          git config --global url."https://gitee.com/mirrors/kivy/python-for-android".insteadOf "https://github.com/kivy/python-for-android" || true
+          git config --global url."https://gitee.com/mirrors/libsdl-org/SDL_image".insteadOf "https://github.com/libsdl-org/SDL_image" || true
+          # Generic fallback: route ALL github.com URLs through gitee
           git config --global url."https://gitee.com/mirrors/".insteadOf "https://github.com/" || true
 
       - name: Install system dependencies
