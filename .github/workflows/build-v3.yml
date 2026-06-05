@@ -1,0 +1,87 @@
+name: Build CET APK v3 (full pipeline)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Build mode'
+        required: true
+        type: choice
+        default: debug
+        options: [debug, release]
+
+jobs:
+  full-build:
+    name: Full Build APK (compile + package)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Install system packages
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential git ffmpeg \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            libportmidi-dev libswscale-dev libavformat-dev libavcodec-dev \
+            zlib1g-dev openjdk-17-jdk unzip zip cmake \
+            autoconf automake libtool pkg-config python3-dev
+
+      - name: Install buildozer
+        run: pip install --upgrade buildozer cython
+
+      - name: Fix environment for runner (no root)
+        run: |
+          # Remove any stale root-owned p4a that causes PermissionError
+          sudo chmod 755 /root || true
+          sudo rm -rf /root/python-for-android /root/.buildozer 2>/dev/null || true
+          # Make sure buildozer sees OUR paths
+          mkdir -p /home/runner/.buildozer
+
+      - name: Stage 1 — create p4a dist (compile Python + SDL2 + Kivy from source)
+        run: |
+          export ANDROIDSDK=/home/runner/.buildozer/android/platform/android-sdk
+          export ANDROIDNDK=/home/runner/.buildozer/android/platform/android-ndk-r28c
+          export ANDROIDAPI=33
+          export NDKAPI=21
+          STORAGE=/home/runner/work/CET-Prep-System/CET-Prep-System/.buildozer/android/platform/build-arm64-v8a
+          mkdir -p $STORAGE
+          python3 -m pythonforandroid.toolchain create \
+            --dist_name=cet_zhisheng \
+            --bootstrap=sdl2 \
+            --requirements=python3,kivy,requests,mutagen \
+            --arch=arm64-v8a \
+            --copy-libs \
+            --color=always \
+            --storage-dir=$STORAGE \
+            --ndk-api=21 \
+            --ignore-setup-py \
+            2>&1 | tee /tmp/p4a_create.log
+        continue-on-error: true
+
+      - name: Stage 2 — build APK
+        run: |
+          yes | buildozer android debug 2>&1 | tee /tmp/build.log
+        continue-on-error: true
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-build-log-${{ github.run_id }}
+          path: |
+            /tmp/p4a_create.log
+            /tmp/build.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CET-ZhiSheng-arm64-debug
+          path: bin/*.apk
+          if-no-files-found: warn
+          retention-days: 30
