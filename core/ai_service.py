@@ -548,6 +548,108 @@ class AIService:
             "analysis": analysis,
         }
 
+    # ---------- per-question explanation (reading / listening) ----------
+    EXPLAIN_SYSTEM = (
+        "你是一位耐心的英语四六级阅卷老师。学生刚做完一道选择题,"
+        "你需要用中文给出 ≤200 字的精炼讲解。严格按照 JSON 输出,"
+        "不要加 markdown 代码块,也不要加额外解释。"
+    )
+
+    def explain_question(
+        self,
+        *,
+        kind: str,                           # 'reading' | 'listening'
+        passage: str,
+        question: str,
+        options: list[str],
+        user_answer: str | None,             # 'A'..'D' or None
+        correct_answer: str,                 # 'A'..'D'
+        existing_analysis: str = "",
+    ) -> dict[str, str]:
+        """Ask the LLM to explain why ``correct_answer`` is right (and why
+        the user's choice, if wrong, was a trap).
+
+        Returns a dict with keys::
+
+            verdict       — short "你答对了 ✅" or "你选了 B,正确答案 A ❌"
+            why_correct   — why the correct option is right (anchor in passage)
+            why_wrong     — why the user's option is wrong; '' if they got it right
+            trap          — common misreading the question targets
+            key_phrases   — comma-separated exam vocab the question tests
+
+        Fallback: if no API key or the call/parse fails, returns just
+        ``{"verdict": ..., "why_correct": existing_analysis or ""}`` so
+        the caller can still render something.
+        """
+        ua = (user_answer or "").upper().strip()
+        ca = (correct_answer or "").upper().strip()
+        ok = bool(ua) and ua == ca
+        verdict = (
+            "你答对了 ✅"
+            if ok
+            else f"你选了 {ua or '(未选)'},正确答案是 {ca} ❌"
+        )
+
+        fallback = {
+            "verdict": verdict,
+            "why_correct": existing_analysis or "",
+            "why_wrong": "",
+            "trap": "",
+            "key_phrases": "",
+        }
+
+        if not self.has_api():
+            return fallback
+
+        kind_label = "阅读理解" if kind == "reading" else "听力理解"
+        opts_block = "\n".join(options) if options else "(无选项)"
+        prompt = (
+            f"题型:{kind_label}\n"
+            f"原文/原文转录:\n{passage[:1500]}\n\n"
+            f"题目:{question}\n"
+            f"选项:\n{opts_block}\n\n"
+            f"正确答案:{ca}\n"
+            f"学生选择:{ua or '(未选)'}\n\n"
+            "请输出 JSON,字段如下:\n"
+            "{\n"
+            '  "why_correct": "≤80 字,说明正确选项为何对(必须引用原文定位/'
+            '关键句)",\n'
+            '  "why_wrong": "≤60 字,说明学生选项错在哪;若答对则空字符串",\n'
+            '  "trap": "≤40 字,出题人常用的干扰陷阱",\n'
+            '  "key_phrases": "本题考察的考点短语,英文逗号分隔,≤6 个"\n'
+            "}"
+        )
+
+        raw = self.call_remote(prompt, system=self.EXPLAIN_SYSTEM)
+        if not raw:
+            return fallback
+
+        # Some models still wrap JSON in ```json fences — strip them.
+        body = raw.strip()
+        if body.startswith("```"):
+            body = re.sub(r"^```(?:json)?\s*", "", body)
+            body = re.sub(r"\s*```$", "", body)
+        try:
+            data = json.loads(body)
+        except Exception:
+            # Last resort: pull the first {...} block out.
+            match = re.search(r"\{[\s\S]*\}", body)
+            if not match:
+                return fallback
+            try:
+                data = json.loads(match.group(0))
+            except Exception:
+                return fallback
+
+        return {
+            "verdict": verdict,
+            "why_correct": str(data.get("why_correct", "")).strip()
+                           or existing_analysis,
+            "why_wrong": "" if ok else str(data.get("why_wrong", "")).strip(),
+            "trap": str(data.get("trap", "")).strip(),
+            "key_phrases": str(data.get("key_phrases", "")).strip(),
+        }
+
     # ---------- optional LLM call ----------
     def call_remote(self, prompt: str, system: str | None = None) -> str | None:
         """If API configured, call an OpenAI-compatible chat completion.
