@@ -15,6 +15,7 @@ original.
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 from pathlib import Path
@@ -324,17 +325,94 @@ class AIService:
     """High-level façade used by the UI for predictions & similar practice."""
 
     def __init__(self) -> None:
+        # Resolution order (most preferred first):
+        #   1. Streamlit ``st.secrets`` — used in Streamlit Cloud deploys.
+        #      The Cloud dashboard's "Secrets" UI is the only place the
+        #      key is actually stored; never committed to git.
+        #   2. ``config.json`` in the project root — local dev fallback.
+        #      If the file exists, the key stays out of the repo via
+        #      .gitignore.
+        #   3. Environment variables ``OPENAI_API_KEY`` etc. — useful
+        #      for headless scripts (e.g. tools/seed_readings.py).
         self.config: dict[str, Any] = self._load_config()
 
     # ---------- config ----------
     @staticmethod
     def _load_config() -> dict[str, Any]:
+        """Read API settings from one of three sources, in priority order:
+
+        1. **Streamlit secrets** (preferred for cloud deploys). When the
+           ``streamlit`` package is importable AND a secrets source
+           exists, we pull keys from ``st.secrets``. This is the only
+           way the key travels in production — it's never written to
+           the repo or to disk.
+        2. **Environment variables** (handy for CLI tools like
+           ``tools/seed_readings.py``). ``OPENAI_API_KEY``,
+           ``OPENAI_BASE_URL``, ``OPENAI_MODEL``.
+        3. **``config.json`` on disk** (local dev fallback). The file
+           is in the project root and listed in ``.gitignore`` so a
+           developer with their own key can drop it in without
+           touching code.
+        """
+        cfg: dict[str, Any] = {
+            "api_key": "",
+            "base_url": "https://api.openai.com/v1",
+            "model": "gpt-3.5-turbo",
+        }
+
+        # 1) Streamlit secrets — only available inside a streamlit app
+        try:
+            import streamlit as _st  # local import to avoid hard dep
+            secrets_obj = getattr(_st, "secrets", None)
+            if secrets_obj is not None:
+                # Streamlit raises FileNotFoundError or KeyError if
+                # the secrets file doesn't define a key — we treat
+                # that as "no secrets configured" and fall through.
+                if hasattr(secrets_obj, "get"):
+                    sec_key = secrets_obj.get("OPENAI_API_KEY", "") or ""
+                    sec_url = secrets_obj.get("OPENAI_BASE_URL", "") or ""
+                    sec_model = secrets_obj.get("OPENAI_MODEL", "") or ""
+                else:
+                    sec_key = sec_url = sec_model = ""
+                if sec_key:
+                    cfg["api_key"] = sec_key
+                if sec_url:
+                    cfg["base_url"] = sec_url
+                if sec_model:
+                    cfg["model"] = sec_model
+                if sec_key:
+                    return cfg
+        except Exception:
+            pass
+
+        # 2) Environment variables
+        env_key = os.environ.get("OPENAI_API_KEY", "")
+        if env_key:
+            cfg["api_key"] = env_key
+        env_url = os.environ.get("OPENAI_BASE_URL", "")
+        if env_url:
+            cfg["base_url"] = env_url
+        env_model = os.environ.get("OPENAI_MODEL", "")
+        if env_model:
+            cfg["model"] = env_model
+        if cfg["api_key"]:
+            return cfg
+
+        # 3) config.json on disk (local dev)
         if CONFIG_PATH.exists():
             try:
-                return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+                file_cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+                # Don't blindly copy — only take recognised fields
+                # and only if the file actually had a key.
+                if file_cfg.get("api_key"):
+                    cfg["api_key"] = file_cfg["api_key"]
+                if file_cfg.get("base_url"):
+                    cfg["base_url"] = file_cfg["base_url"]
+                if file_cfg.get("model"):
+                    cfg["model"] = file_cfg["model"]
             except Exception:
-                return {}
-        return {}
+                pass
+        return cfg
 
     def save_config(self) -> None:
         CONFIG_PATH.write_text(
@@ -405,10 +483,23 @@ class AIService:
         related = f"{keyword} applications"
         year_short = random.choice(["2023", "2024", "2025"])
         ctx = dict(topic=topic_type_en, year_short=year_short, keyword=keyword, related=related)
+
+        # ``questions`` is a JSON string in the template, so downstream
+        # callers can either grab it as a list directly or run
+        # ``json.loads()`` themselves. We materialise it as a list here
+        # so the contract matches ``generate_similar_reading_llm`` and
+        # ``save_generated_practice`` works without extra parsing.
+        import json as _json
+        questions_raw = Template(template["questions"]).safe_substitute(ctx)
+        try:
+            questions_list = _json.loads(questions_raw)
+        except Exception:
+            questions_list = []
+
         return {
             "title": f"拓展练习 — {raw_title}的延伸议题",
             "passage": Template(template["passage"]).safe_substitute(ctx),
-            "questions": Template(template["questions"]).safe_substitute(ctx),
+            "questions": questions_list,
             "answers": template["answers"],
             "analysis": Template(template["analysis"]).safe_substitute(ctx),
         }

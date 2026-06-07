@@ -1,3 +1,16 @@
-customtkinter>=5.2.0
-requests>=2.31.0
-Pillow>=10.0.0
+# =============================================================================
+# CET Prep System — Streamlit Cloud web-app requirements
+# =============================================================================
+# ONLY the dependencies needed by ``web_app.py`` and its support modules
+# (``core/*``, ``tools/seed_readings.py``).
+#
+# Desktop-only packages (customtkinter, Pillow for tkinter widgets) are
+# intentionally excluded so the Cloud build is small.
+#
+# Pin major versions to avoid surprise breakage on a 6-monthly rebuild.
+# Lower bounds are set to the first version that supports every API we
+# use (st.dialog, st.secrets.get, requests.post timeout kwarg).
+# =============================================================================
+
+streamlit>=1.31,<2.0
+requests>=2.31,<3.0
