@@ -53,7 +53,9 @@ version = 2.1.0
 #    requests — AI / 在线翻译 API 调用
 #    NOTE: pygame 已移除 — pygame 2.1.0 与 Python 3.14 不兼容
 #          (PyErr API 已废弃),且我们的 mobile_main.py 实际未使用 pygame
-requirements = python3,kivy,requests,mutagen
+#    NOTE: python3 已移除 — 手动指定 python3 版本会触发 p4a 探测最新版本,
+#          在国内网络下经常卡死。让 buildozer 用默认的 Python 3.11 即可。
+requirements = kivy,requests,mutagen
 
 # (str) Presplash background color (hex)
 #    启动屏背景 — 用主品牌色 #3B82F6 (蓝)
