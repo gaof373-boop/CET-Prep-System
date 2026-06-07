@@ -104,6 +104,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cet-zhisheng-apk-debug
-          path: .buildozer/bin/*.apk
+          path: bin/*.apk
           if-no-files-found: warn
           retention-days: 30

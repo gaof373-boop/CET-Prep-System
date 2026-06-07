@@ -1,0 +1,144 @@
+name: Build CET APK v7 (final, with all known fixes)
+
+# Only manual trigger to save CI minutes; can be changed to push-based later
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      # Force p4a to use a writable directory on the runner.
+      # GitHub runners run as `runner` user, but p4a hardcodes /root paths.
+      HOME: /home/runner
+      ANDROIDSDK: /home/runner/.buildozer/android/platform/android-sdk
+      ANDROIDNDK: /home/runner/.buildozer/android/platform/android-ndk-r28c
+      ANDROIDAPI: 33
+      NDKAPI: 21
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # FIX 1: Install libssl-dev + libffi-dev + all the other deps.
+      # Previous workflows missed libssl-dev which is the root cause of
+      # hostpython3 losing its SSL module and pip install failing.
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential git ffmpeg \
+            libsdl2-dev libsdl2-image-dev libsdl2-mixer-dev libsdl2-ttf-dev \
+            libportmidi-dev libswscale-dev \
+            libavformat-dev libavcodec-dev zlib1g-dev \
+            openjdk-17-jdk unzip zip \
+            libssl-dev libffi-dev \
+            autoconf automake libtool pkg-config cmake python3-dev
+
+      - name: Install buildozer + cython
+        run: pip install --upgrade buildozer cython
+
+      # FIX 2: GitHub Actions runner runs as non-root. Buildozer hardcodes
+      # /root paths. Pre-create the dirs it expects and chmod them.
+      - name: Fix permissions and prep dirs
+        run: |
+          sudo chmod 755 /root || true
+          sudo rm -rf /root/python-for-android /root/.buildozer 2>/dev/null || true
+          mkdir -p /home/runner/.buildozer
+          chmod -R 777 /home/runner/.buildozer .
+          chmod -R 777 .
+
+      # FIX 3: The requirements line in buildozer.spec must NOT include
+      # "python3" — including it triggers a buildozer 1.6.0 deadlock
+      # where it tries to resolve the latest Python version. Just keep
+      # kivy, requests, mutagen and let p4a pick a Python automatically.
+      - name: Sanitise buildozer.spec
+        run: |
+          sed -i 's/^requirements = .*/requirements = kivy,requests,mutagen/' buildozer.spec
+          sed -i 's/^log_level = 1/log_level = 2/' buildozer.spec
+          echo "=== spec after sanitisation ==="
+          grep -E "^(requirements|log_level|p4a\.source_dir|android\.archs|android\.sdk|android\.ndk|android\.api|android\.minapi)" buildozer.spec
+
+      # FIX 4: The p4a sdl2_image recipe (in v2026.05.09 release) clones
+      # libjxl with `--recursive` which fails on submodules like
+      # skia.googlesource.com. Patch the recipe to use
+      # --shallow-submodules so it skips the recursive submodule
+      # cloning that always fails in this build environment.
+      - name: Patch p4a sdl2_image to skip recursive submodule clone
+        run: |
+          P4A_DIR=/home/runner/.buildozer/android/platform/python-for-android
+          if [ -d "$P4A_DIR" ]; then
+            RECIPE="$P4A_DIR/pythonforandroid/recipes/sdl2_image/__init__.py"
+            if [ -f "$RECIPE" ]; then
+              cp "$RECIPE" "$RECIPE.bak"
+              sed -i 's|"--recursive"|"--shallow-submodules"|' "$RECIPE"
+              echo "=== patched recipe ==="
+              grep -A4 'shprint(' "$RECIPE" | head -10
+            fi
+          fi
+        # If p4a dir doesn't exist yet (first run) buildozer will create it,
+        # but the recipe is already downloaded by then. In that case the
+        # in-build patch below will handle it.
+
+      # FIX 5: Run buildozer with --verbose to see real errors.
+      - name: Build APK (with verbose logging)
+        run: |
+          yes | buildozer android debug 2>&1 | tee /tmp/build.log
+          echo "BUILD_LOG_END"
+        continue-on-error: true
+
+      # FIX 6: Post-build, try a second time if the sdl2_image recipe
+      # was patched late. The first run may have failed because p4a
+      # wasn't there yet. Second run with the patch in place will
+      # use the new --shallow-submodules flag.
+      - name: Patch again (in case p4a was cloned during first build) and retry
+        if: failure()
+        run: |
+          P4A_DIR=/home/runner/.buildozer/android/platform/python-for-android
+          RECIPE="$P4A_DIR/pythonforandroid/recipes/sdl2_image/__init__.py"
+          if [ -f "$RECIPE" ]; then
+            cp "$RECIPE" "$RECIPE.bak"
+            sed -i 's|"--recursive"|"--shallow-submodules"|' "$RECIPE"
+            echo "=== re-patched recipe ==="
+            grep -A4 'shprint(' "$RECIPE" | head -10
+          fi
+          yes | buildozer android debug 2>&1 | tee /tmp/build-retry.log
+          echo "BUILD_RETRY_END"
+        continue-on-error: true
+
+      - name: List APK output
+        if: always()
+        run: |
+          echo "## APK Output" >> $GITHUB_STEP_SUMMARY
+          ls -lh bin/*.apk 2>/dev/null | tee -a $GITHUB_STEP_SUMMARY || echo "No APK in bin/"
+          ls -lh .buildozer/android/platform/build-arm64-v8a/dists/cet_zhisheng/*.apk 2>/dev/null | tee -a $GITHUB_STEP_SUMMARY || echo "No APK in dists/"
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Total APK count: $(find . -name '*.apk' 2>/dev/null | wc -l)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload full build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-v7-log-${{ github.run_id }}
+          path: |
+            /tmp/build.log
+            /tmp/build-retry.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload APK
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: CET-ZhiSheng-v7-apk
+          path: |
+            bin/*.apk
+            .buildozer/android/platform/build-arm64-v8a/dists/cet_zhisheng/*.apk
+          if-no-files-found: warn
+          retention-days: 30
