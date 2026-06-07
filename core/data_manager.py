@@ -7,11 +7,28 @@ only depend on this module — never on raw ``sqlite3``.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from .db_init import DB_PATH
+
+
+_ANSWER_PAIR_RE = re.compile(r"(\d+)\s*[.、)\s]\s*([A-Da-d])")
+
+
+def parse_answer_letters(answers_text: str | None) -> list[str]:
+    """Parse loose '1. A  2. B  3. C' format into ['A', 'B', 'C'].
+
+    Whitespace-tolerant, accepts ``、`` and ``)`` as separators, case-insensitive.
+    Returns ``[]`` for empty/None input. Re-sorts by question index in case
+    the source string lists answers out of order.
+    """
+    if not answers_text:
+        return []
+    pairs = _ANSWER_PAIR_RE.findall(answers_text)
+    return [letter.upper() for _, letter in sorted(pairs, key=lambda x: int(x[0]))]
 
 
 class DataManager:
@@ -381,6 +398,85 @@ class DataManager:
             c.commit()
         consec = int(row["consec_correct"]) if row else 0
         return consec, was_removed
+
+    # =================================================================
+    # Practice attempts (reading / listening) — populated by the web
+    # and desktop practice flows. Used for the score banner and any
+    # future learning-curve chart.
+    # =================================================================
+    def record_practice_attempt(
+        self,
+        *,
+        item_type: str,
+        item_id: int,
+        level: str,
+        q_index: int,
+        user_answer: str | None,
+        correct_answer: str,
+        source: str = "web",
+    ) -> int:
+        """Persist one answered question. Returns the inserted row id.
+
+        ``user_answer`` may be ``None`` if the user skipped the question;
+        ``correct_answer`` should be the single-letter ground truth (we
+        treat empty string as 'unknown' and store is_correct=0).
+        """
+        ua = (user_answer or "").upper().strip() or None
+        ca = (correct_answer or "").upper().strip()
+        is_correct = 1 if (ua is not None and ua == ca and ca) else 0
+        with self._conn() as c:
+            cur = c.execute(
+                "INSERT INTO practice_attempts "
+                "(item_type, item_id, level, q_index, user_answer, "
+                " correct_answer, is_correct, source) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (item_type, item_id, level, q_index, ua, ca,
+                 is_correct, source),
+            )
+            c.commit()
+            return int(cur.lastrowid)
+
+    def list_practice_attempts(
+        self,
+        *,
+        level: str | None = None,
+        item_type: str | None = None,
+        limit: int = 200,
+    ) -> list[dict[str, Any]]:
+        """Recent attempts, newest first. Used for the history panel."""
+        sql = "SELECT * FROM practice_attempts WHERE 1=1"
+        params: list[Any] = []
+        if level:
+            sql += " AND level = ?"
+            params.append(level)
+        if item_type:
+            sql += " AND item_type = ?"
+            params.append(item_type)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with self._conn() as c:
+            rows = c.execute(sql, params).fetchall()
+        return [dict(r) for r in rows]
+
+    def practice_stats(self, level: str) -> dict[str, int]:
+        """Return per-section attempt + correct counts for the level.
+
+        Keys: reading_attempts, reading_correct,
+              listening_attempts, listening_correct.
+        """
+        out: dict[str, int] = {}
+        with self._conn() as c:
+            for kind in ("reading", "listening"):
+                row = c.execute(
+                    "SELECT COUNT(*) AS total, "
+                    "       COALESCE(SUM(is_correct), 0) AS correct "
+                    "FROM practice_attempts "
+                    "WHERE item_type = ? AND level = ?",
+                    (kind, level),
+                ).fetchone()
+                out[f"{kind}_attempts"] = int(row["total"] or 0)
+                out[f"{kind}_correct"] = int(row["correct"] or 0)
+        return out
 
     def list_mastered(self, level: str, *, limit: int = 2000) -> list[dict[str, Any]]:
         """Words the user has checked the '已掌握' box on."""

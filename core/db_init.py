@@ -121,6 +121,24 @@ CREATE TABLE IF NOT EXISTS generated_practice (
     analysis TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Per-question answer history. Populated by the web/desktop practice
+-- flows whenever the user submits an answer; used for the score banner
+-- ("累计 N 题 · 正确率 X%") and any future learning-curve chart.
+CREATE TABLE IF NOT EXISTS practice_attempts (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_type      TEXT NOT NULL,         -- 'reading' | 'listening'
+    item_id        INTEGER NOT NULL,      -- FK to reading.id / listening.id
+    level          TEXT NOT NULL,         -- 'CET4' | 'CET6'
+    q_index        INTEGER NOT NULL,      -- 0-based question index within item
+    user_answer    TEXT,                  -- 'A'..'D' or NULL if skipped
+    correct_answer TEXT,                  -- 'A'..'D'
+    is_correct     INTEGER NOT NULL,      -- 0 / 1
+    source         TEXT DEFAULT 'web',    -- 'web' | 'desktop' | 'mobile'
+    created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_attempts_item       ON practice_attempts(item_type, item_id);
+CREATE INDEX IF NOT EXISTS idx_attempts_level_time ON practice_attempts(level, created_at DESC);
 """
 
 VOCAB_SEED = [
