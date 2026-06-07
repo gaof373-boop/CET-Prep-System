@@ -59,6 +59,20 @@ class WordDetailDialog:
         self.win = ctk.CTkToplevel(master)
         self.win.title("🔎  单词详情")
         self.win.geometry("820x560")
+        # Bind to parent so WM treats this as a child window (no separate
+        # taskbar icon, no focus stealing surprises on Win32).
+        try:
+            self.win.transient(master)
+        except Exception:
+            pass
+        # Make the close button call destroy() explicitly, so we never
+        # depend on Tk's default WM_DELETE_WINDOW path — that path is
+        # the most common source of "flash-and-close" on Windows when
+        # the toplevel loses focus right after being mapped.
+        try:
+            self.win.protocol("WM_DELETE_WINDOW", self._on_close)
+        except Exception:
+            pass
         # Do NOT call grab_set() — we want the underlying grid clickable.
         # Center on the parent.
         self.win.update_idletasks()
@@ -68,6 +82,13 @@ class WordDetailDialog:
             self.win.geometry(f"+{x}+{y}")
         except Exception:
             pass
+        # Force the window above the parent and pull focus to it.
+        # Use after() so it runs on the next idle tick — calling lift()
+        # and focus_force() synchronously inside __init__ races with the
+        # <ButtonRelease-1> event that just triggered us, and on Windows
+        # the parent sometimes grabs focus back and the toplevel then
+        # receives a synthetic focus-out that looks like "auto close".
+        self.win.after(50, self._post_show_focus)
 
         # ----- top: word + phonetic + pos -----
         top = ctk.CTkFrame(self.win, fg_color="transparent")
@@ -145,6 +166,25 @@ class WordDetailDialog:
         self._render()
 
     # ---------- handlers ----------
+    def _post_show_focus(self) -> None:
+        """Run after the event loop idles so the toplevel survives the
+        <ButtonRelease-1> that opened it. Without this, Windows can
+        bounce focus back to the main window during the same event
+        dispatch, which on some Tk builds triggers a phantom close."""
+        try:
+            if not self.win.winfo_exists():
+                return
+            self.win.lift()
+            self.win.focus_force()
+        except Exception:
+            pass
+
+    def _on_close(self) -> None:
+        try:
+            self.win.destroy()
+        except Exception:
+            pass
+
     def _on_key(self, event) -> None:
         # Some CTk buttons consume arrow events when focused; fall back
         # to a global handler so left/right always works.
@@ -189,45 +229,87 @@ class WordDetailDialog:
             return None
         return self.words[self._index]
 
+    @staticmethod
+    def _s(v: Any) -> str:
+        """Coerce any value (including None / int / bytes) to a safe str."""
+        if v is None:
+            return ""
+        if isinstance(v, bytes):
+            try:
+                return v.decode("utf-8", errors="replace")
+            except Exception:
+                return ""
+        return str(v)
+
     def _render(self) -> None:
         w = self._current_word()
         if not w:
-            self.word_lbl.configure(text="(无内容)")
+            try:
+                self.word_lbl.configure(text="(无内容)")
+            except Exception:
+                pass
             return
-        word = w.get("word", "")
-        phonetic = w.get("phonetic") or ""
-        translation = _safe_translation(word, w.get("translation", ""))
-        pos = w.get("pos") or ""
-        freq = w.get("frequency") or 0
-        stars = w.get("star_rating") or 0
-        example_en = w.get("example_sentence") or ""
-        example_zh = w.get("example_translation") or ""
+        word = self._s(w.get("word"))
+        phonetic = self._s(w.get("phonetic"))
+        translation = _safe_translation(word, self._s(w.get("translation")))
+        pos = self._s(w.get("pos"))
+        try:
+            freq = int(w.get("frequency") or 0)
+        except Exception:
+            freq = 0
+        try:
+            stars = int(w.get("star_rating") or 0)
+        except Exception:
+            stars = 0
+        example_en = self._s(w.get("example_sentence"))
+        example_zh = self._s(w.get("example_translation"))
         mastered = bool(w.get("mastered"))
-        wrong_count = w.get("wrong_count") or 0
+        try:
+            wrong_count = int(w.get("wrong_count") or 0)
+        except Exception:
+            wrong_count = 0
 
         # Title: "word  (5/30)"
-        self.word_lbl.configure(text=f"{word}  ")
-        self.phon_lbl.configure(text=phonetic if phonetic else "[/]")
+        try:
+            self.word_lbl.configure(text=f"{word}  ")
+            self.phon_lbl.configure(text=phonetic if phonetic else "[/]")
+        except Exception:
+            return
         # translation
-        self.trans_lbl.configure(
-            text=f"{pos}  {translation}" if pos else (translation or "(暂无中文释义)")
-        )
+        try:
+            self.trans_lbl.configure(
+                text=f"{pos}  {translation}" if pos else (translation or "(暂无中文释义)")
+            )
+        except Exception:
+            pass
         # meta
         meta_bits = [
             f"⭐ {stars}/5",
             f"频次: {freq}",
             f"错题: {wrong_count} 次" if wrong_count else None,
         ]
-        self.meta_lbl.configure(text="  ·  ".join(b for b in meta_bits if b))
+        try:
+            self.meta_lbl.configure(text="  ·  ".join(b for b in meta_bits if b))
+        except Exception:
+            pass
         # examples
-        self.ex_en.configure(state="normal")
-        self.ex_en.delete("1.0", "end")
-        self.ex_en.insert("1.0", example_en or "(暂无例句)")
-        self.ex_en.configure(state="disabled")
-        self.ex_zh.configure(text=example_zh)
+        try:
+            self.ex_en.configure(state="normal")
+            self.ex_en.delete("1.0", "end")
+            self.ex_en.insert("1.0", example_en or "(暂无例句)")
+            self.ex_en.configure(state="disabled")
+            self.ex_zh.configure(text=example_zh)
+        except Exception:
+            pass
         # mastered checkbox
-        self.mastered_var.set(mastered)
+        try:
+            self.mastered_var.set(mastered)
+        except Exception:
+            pass
         # window title
-        self.win.title(
-            f"🔎  {word}  ({self._index + 1}/{len(self.words)})"
-        )
+        try:
+            self.win.title(
+                f"🔎  {word}  ({self._index + 1}/{len(self.words)})"
+            )
+        except Exception:
+            pass
