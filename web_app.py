@@ -33,7 +33,7 @@ os.chdir(PROJECT_ROOT)
 
 import streamlit as st  # noqa: E402
 
-from core.data_manager import DataManager  # noqa: E402
+from core.data_manager import DataManager, parse_answer_letters  # noqa: E402
 from core.ai_service import AIService  # noqa: E402
 from core.db_init import DB_PATH, init_database  # noqa: E402
 
@@ -84,6 +84,11 @@ if "level" not in st.session_state:
     st.session_state.level = "CET-4"
 if "quiz_state" not in st.session_state:
     st.session_state.quiz_state = None  # dict or None
+if "practice_state" not in st.session_state:
+    # One sub-dict per practice item, keyed f"{kind}:{item_id}".
+    # Shape: {"answers": {q_index: option_text}, "submitted": bool,
+    #         "ai_reports": {q_index: dict}}
+    st.session_state.practice_state = {}
 
 
 # ===========================================================================
@@ -546,6 +551,8 @@ def _render_sidebar() -> str:
             ["📊 学霸看板",
              "📝 词汇板块",
              "🎲 背单词自测",
+             "📰 阅读训练",
+             "🎧 听力训练",
              "🤖 AI 批改官",
              "🟥 错题本"],
             label_visibility="collapsed",
@@ -568,6 +575,255 @@ def _render_sidebar() -> str:
                 st.success("已保存 ✓")
                 st.rerun()
         return page
+
+
+# ===========================================================================
+# Reading / Listening practice (shared renderer)
+# ===========================================================================
+def _safe_json_loads(raw: str | None, default):
+    import json as _json
+    if not raw:
+        return default
+    try:
+        return _json.loads(raw)
+    except Exception:
+        return default
+
+
+def _first_letter(text: str) -> str:
+    """Pull 'A', 'B', 'C' or 'D' out of an option string like 'A. The man ...'.
+    Returns empty string if no leading letter found."""
+    if not text:
+        return ""
+    s = text.strip()
+    if s and s[0].upper() in "ABCD":
+        return s[0].upper()
+    return ""
+
+
+def _practice_item_label(item: dict, kind: str) -> str:
+    """Human-readable picker label for an item."""
+    yr = item.get("year") or "?"
+    sess = item.get("session") or ""
+    topic = item.get("topic_type") or ""
+    if kind == "reading":
+        title = (item.get("passage_title") or "Untitled").strip()
+        return f"#{item.get('id')} · {yr} {sess} · {title[:40]}"
+    else:  # listening
+        section = (item.get("section") or "").strip()
+        return f"#{item.get('id')} · {yr} {sess} · {section[:30]} {topic}".strip()
+
+
+def _render_practice_session(kind: str) -> None:
+    """Unified reading + listening practice flow.
+
+    ``kind`` is ``'reading'`` or ``'listening'``. Reading shows the passage
+    inline; listening shows an audio player and folds the transcript into
+    an expander so the user can self-test before peeking.
+    """
+    level = st.session_state.level.replace("-", "")
+    title = "📰 阅读训练" if kind == "reading" else "🎧 听力训练"
+    st.markdown(f"## {title} · {level}")
+
+    items = dm.list_reading(level) if kind == "reading" else dm.list_listening(level)
+    if not items:
+        st.warning(f"该级别暂无{('阅读' if kind=='reading' else '听力')}题目")
+        return
+
+    # ---- progress strip (cumulative + accuracy) ----
+    stats = dm.practice_stats(level)
+    attempts = stats[f"{kind}_attempts"]
+    correct = stats[f"{kind}_correct"]
+    rate = (correct / attempts * 100) if attempts else 0.0
+    pcol1, pcol2, pcol3 = st.columns(3)
+    pcol1.metric("累计答题", f"{attempts}")
+    pcol2.metric("答对", f"{correct}")
+    pcol3.metric("正确率", f"{rate:.1f}%")
+
+    # ---- item picker ----
+    idx = st.selectbox(
+        "选一道题",
+        list(range(len(items))),
+        format_func=lambda i: _practice_item_label(items[i], kind),
+        key=f"{kind}_pick",
+    )
+    item = items[idx]
+    state_key = f"{kind}:{item['id']}"
+    st.session_state.practice_state.setdefault(
+        state_key, {"answers": {}, "submitted": False, "ai_reports": {}}
+    )
+    pstate = st.session_state.practice_state[state_key]
+
+    # ---- material panel ----
+    if kind == "reading":
+        st.markdown(f"### {item.get('passage_title') or 'Passage'}")
+        passage_html = (item.get("passage") or "").replace("\n", "<br>")
+        st.markdown(
+            f"<div style='line-height:1.85; padding:14px 16px; "
+            f"background:#F8FAFC; border-radius:8px; border-left:4px solid #3B82F6;'>"
+            f"{passage_html}</div>",
+            unsafe_allow_html=True,
+        )
+    else:  # listening
+        st.markdown(f"#### {item.get('section') or '听力'} · {item.get('topic_type') or ''}")
+        audio_rel = item.get("audio_file") or ""
+        audio_path = Path(audio_rel) if audio_rel else None
+        if audio_path and audio_path.exists():
+            try:
+                st.audio(audio_path.read_bytes(), format="audio/mp3")
+            except Exception as e:
+                st.warning(f"音频加载失败:{e}")
+        else:
+            st.info("⚠️ 此题暂无音频文件,可参考下方原文练习")
+        with st.expander("📜 听力原文 (做完再展开核对)", expanded=False):
+            st.write(item.get("audio_script", "") or "(暂无原文)")
+
+    # ---- questions ----
+    questions = _safe_json_loads(item.get("questions"), default=[])
+    correct_letters = parse_answer_letters(item.get("answers"))
+
+    if not questions:
+        st.error("题目数据缺失或损坏(questions 字段无法解析)")
+        return
+
+    st.markdown("---")
+    st.markdown("### 📝 题目")
+    for qi, q in enumerate(questions):
+        st.markdown(f"**Q{qi+1}. {q.get('q','(题目缺失)')}**")
+        opts = q.get("options", []) or []
+        if not opts:
+            st.caption("(无选项)")
+            continue
+        # Pre-select the previously stored answer if any, otherwise the first option.
+        prev = pstate["answers"].get(qi)
+        idx_default = opts.index(prev) if prev in opts else 0
+        chosen = st.radio(
+            label=f"q_{state_key}_{qi}",
+            options=opts,
+            index=idx_default,
+            key=f"radio_{state_key}_{qi}",
+            label_visibility="collapsed",
+            disabled=pstate["submitted"],
+        )
+        pstate["answers"][qi] = chosen
+
+    # ---- submit / feedback ----
+    if not pstate["submitted"]:
+        if st.button("✅ 提交本题答案", type="primary",
+                      use_container_width=True,
+                      key=f"submit_{state_key}"):
+            for qi in range(len(questions)):
+                ua = _first_letter(pstate["answers"].get(qi, ""))
+                ca = correct_letters[qi] if qi < len(correct_letters) else ""
+                try:
+                    dm.record_practice_attempt(
+                        item_type=kind, item_id=int(item["id"]),
+                        level=level, q_index=qi,
+                        user_answer=ua or None, correct_answer=ca,
+                        source="web",
+                    )
+                except Exception as e:
+                    st.error(f"持久化失败:{e}")
+            pstate["submitted"] = True
+            st.rerun()
+        return
+
+    # ---- post-submit: score banner + per-question feedback + AI explain ----
+    n_total = len(questions)
+    n_correct = 0
+    for qi in range(n_total):
+        ua = _first_letter(pstate["answers"].get(qi, ""))
+        ca = correct_letters[qi] if qi < len(correct_letters) else ""
+        if ua and ua == ca:
+            n_correct += 1
+
+    score_pct = (n_correct / n_total * 100) if n_total else 0
+    if score_pct >= 80:
+        st.success(f"🎉 得分:{n_correct} / {n_total}  ({score_pct:.0f}%) — 很棒!")
+    elif score_pct >= 50:
+        st.info(f"📊 得分:{n_correct} / {n_total}  ({score_pct:.0f}%) — 继续巩固")
+    else:
+        st.warning(f"💪 得分:{n_correct} / {n_total}  ({score_pct:.0f}%) — 再战一题")
+
+    for qi, q in enumerate(questions):
+        ua = _first_letter(pstate["answers"].get(qi, ""))
+        ca = correct_letters[qi] if qi < len(correct_letters) else ""
+        ok = bool(ua) and (ua == ca)
+        color = "#10B981" if ok else "#EF4444"
+        mark = "✅" if ok else "❌"
+        st.markdown(
+            f"<div style='border-left:4px solid {color}; padding:10px 14px; "
+            f"margin:8px 0; background:{color}11; border-radius:6px;'>"
+            f"<b>Q{qi+1}</b> &nbsp; 你的选择:<b>{ua or '(未选)'}</b> "
+            f"&nbsp;·&nbsp; 正确答案:<b>{ca or '?'}</b> &nbsp;{mark}"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+        col_a, col_b = st.columns([1, 4])
+        with col_a:
+            if st.button("🧐 AI 讲解", key=f"explain_btn_{state_key}_{qi}",
+                          use_container_width=True):
+                with st.spinner("AI 老师正在分析此题..."):
+                    try:
+                        passage_text = (
+                            item.get("passage") if kind == "reading"
+                            else item.get("audio_script", "")
+                        ) or ""
+                        rpt = ai.explain_question(
+                            kind=kind, passage=passage_text,
+                            question=q.get("q", ""),
+                            options=q.get("options", []) or [],
+                            user_answer=ua, correct_answer=ca,
+                            existing_analysis=item.get("analysis", "") or "",
+                        )
+                    except Exception as e:
+                        st.error(f"AI 讲解失败:{e}")
+                        rpt = None
+                if rpt:
+                    pstate["ai_reports"][qi] = rpt
+                    st.rerun()
+
+        rpt = pstate["ai_reports"].get(qi)
+        if rpt:
+            with col_b:
+                if rpt.get("why_correct"):
+                    st.info(f"✅ **正确解析** — {rpt['why_correct']}")
+                if rpt.get("why_wrong"):
+                    st.warning(f"❌ **你的选项错在哪** — {rpt['why_wrong']}")
+                if rpt.get("trap"):
+                    st.caption(f"⚠️ 出题陷阱:{rpt['trap']}")
+                if rpt.get("key_phrases"):
+                    st.caption(f"📌 考点短语:{rpt['key_phrases']}")
+
+    # Original DB analysis (always available, complements AI)
+    db_analysis = item.get("analysis", "") or ""
+    if db_analysis:
+        with st.expander("📒 官方/原始解析", expanded=False):
+            st.write(db_analysis)
+
+    st.markdown("---")
+    rcol1, rcol2 = st.columns(2)
+    with rcol1:
+        if st.button("🔁 再做一次本题", key=f"reset_{state_key}",
+                      use_container_width=True):
+            st.session_state.practice_state.pop(state_key, None)
+            st.rerun()
+    with rcol2:
+        if st.button("🎲 随机换一题", key=f"shuffle_{state_key}",
+                      use_container_width=True):
+            import random as _r
+            others = [i for i in range(len(items)) if i != idx]
+            if others:
+                st.session_state[f"{kind}_pick"] = _r.choice(others)
+                st.rerun()
+
+
+def _render_reading_tab() -> None:
+    _render_practice_session("reading")
+
+
+def _render_listening_tab() -> None:
+    _render_practice_session("listening")
 
 
 def _render_wrongbook() -> None:
@@ -693,6 +949,10 @@ def main() -> None:
         _render_vocabulary_tab()
     elif page.startswith("🎲"):
         _render_quiz_tab()
+    elif page.startswith("📰"):
+        _render_reading_tab()
+    elif page.startswith("🎧"):
+        _render_listening_tab()
     elif page.startswith("🤖"):
         _render_ai_grader()
     elif page.startswith("🟥"):
