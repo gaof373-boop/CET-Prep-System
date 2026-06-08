@@ -37,6 +37,10 @@ from core.data_manager import DataManager, parse_answer_letters  # noqa: E402
 from core.ai_service import AIService  # noqa: E402
 from core.db_init import DB_PATH, init_database  # noqa: E402
 
+# Editorial Notebook design system. Loads CSS, helpers for hero /
+# stat-sheet / chapter index. See web_ui.py for the design tokens.
+import web_ui  # noqa: E402
+
 # Force the DB to exist (no-op if it already does). This means
 # launching `streamlit run web_app.py` from a clean checkout
 # still ends up with a usable schema.
@@ -154,65 +158,129 @@ QUOTES = [
 
 
 def _render_dashboard() -> None:
-    """V2.2 学霸看板 — native st.metric × 4 columns + delta indicators.
+    """V3.0 学霸看板 — Editorial Notebook aesthetic.
 
-    Uses Streamlit's built-in ``st.metric`` so the cards are perfectly
-    responsive on mobile and look like the official Streamlit dashboard.
+    The data is the same; the visual language is that of a
+    1920s-illustrated Chinese-English language primer. Big Playfair
+    numerals, cinnabar-red accents, paper-edge borders, Roman
+    numerals for section labels. Avoids the "AI dashboard" gradient
+    soup entirely.
     """
     level = st.session_state.level.replace("-", "")
     stats = dm.dashboard_stats(level=level)
 
-    # ----- Hero header -----
-    st.markdown("## 📊 学霸备考数据看板")
-    st.caption(f"当前级别: **{st.session_state.level}** · 你的今日战况")
+    # ----- Hero header (editorial top-of-page) -----
+    web_ui.editorial_hero(level, stats["total_words"])
 
-    # ----- 4 native metric cards (Streamlit handles mobile reflow) -----
-    c1, c2, c3, c4 = st.columns(4)
-    with c1:
-        st.metric(
-            label="🎯 已掌握词汇",
-            value=f"{stats['mastered']:,}",
-            delta=f"{(stats['mastered'] / max(1, stats['total_words']) * 100):.1f}%",
-            delta_color="normal",
-            help="点击「📝 词汇板块」标记 ✓ 已掌握",
+    # ----- Section break rule -----
+    web_ui.editorial_rule("I · At a Glance")
+
+    # ----- 4 stat tiles as a 1920s accounting-book ledger -----
+    mastery_pct = (stats['mastered'] / max(1, stats['total_words']) * 100)
+    ai_total = stats['ai_essay_grades'] + stats['ai_trans_grades']
+    practice_total = stats['practice_reading'] + stats['practice_listening']
+    web_ui.stat_sheet([
+        {
+            "no": "I",
+            "value": stats['mastered'],
+            "suffix": f" / {stats['total_words']:,}",
+            "label": "已掌握词汇",
+            "delta": f"({mastery_pct:.1f}% of the corpus)",
+        },
+        {
+            "no": "II",
+            "value": stats['wrong_book'],
+            "label": "错题本待攻坚",
+            "delta": "点击 🟥 错题本 反复练习",
+            "delta_negative": True,
+        },
+        {
+            "no": "III",
+            "value": practice_total,
+            "label": "刷题总量",
+            "delta": f"阅读 {stats['practice_reading']} · 听力 {stats['practice_listening']}",
+        },
+        {
+            "no": "IV",
+            "value": ai_total,
+            "label": "AI 批改次数",
+            "delta": f"写作 {stats['ai_essay_grades']} · 翻译 {stats['ai_trans_grades']}",
+        },
+    ])
+
+    # ----- Section break + secondary content -----
+    web_ui.editorial_rule("II · Today's Editorial")
+
+    # ----- Pull-quote + DB info in two paper cards -----
+    left, right = st.columns([2, 1])
+    with left:
+        import datetime as _dt
+        quote = random.choice(web_ui.QUOTES)
+        st.markdown(
+            f'<div class="paper-card">'
+            f'<div class="editorial-no" style="margin-bottom:8px;">DAILY · '
+            f'{_dt.date.today().strftime("%A %d %B").upper()}</div>'
+            f'<p style="font-family:Georgia, \'Source Serif 4\',serif;'
+            f'         font-size:22px; line-height:1.55; color:var(--ink); '
+            f'         font-style:italic; margin:0;">'
+            f'&ldquo;{quote}&rdquo;'
+            f'</p>'
+            f'<div style="margin-top:18px; font-size:13px; color:var(--ink-soft); '
+            f'             font-style:italic;">— from the editor&apos;s desk</div>'
+            f'</div>',
+            unsafe_allow_html=True,
         )
-    with c2:
-        st.metric(
-            label="🟥 错题攻坚",
-            value=f"{stats['wrong_book']:,}",
-            delta="点击巩固 →",
-            delta_color="inverse",
-            help="错题数越高,说明薄弱点越多,赶紧去「🟥 错题本」反复练!",
-        )
-    with c3:
-        st.metric(
-            label="📚 刷题成就",
-            value=f"{stats['practice_reading'] + stats['practice_listening']:,}",
-            delta=f"阅读 {stats['practice_reading']} · 听力 {stats['practice_listening']}",
-            delta_color="off",
-            help="阅读 + 听力总题数",
-        )
-    with c4:
-        ai_total = stats['ai_essay_grades'] + stats['ai_trans_grades']
-        st.metric(
-            label="🤖 AI 助攻频次",
-            value=f"{ai_total:,}",
-            delta=f"写作 {stats['ai_essay_grades']} · 翻译 {stats['ai_trans_grades']}",
-            delta_color="off",
-            help="写作批改 + 翻译精批 累计",
+    with right:
+        st.markdown(
+            f'<div class="paper-card accent-cinnabar">'
+            f'<div class="editorial-no" style="margin-bottom:6px;">COLOPHON</div>'
+            f'<div style="font-family:{web_ui.FONT_BODY}; font-size:14px; '
+            f'              line-height:1.65; color:var(--ink);">'
+            f'<p style="margin:0 0 8px 0;">A working study system for '
+            f'Chinese undergraduates sitting the College English Test, '
+            f'first written in 2026. Backed by ten years of paper '
+            f'archives and a small, well-trained language model.</p>'
+            f'<p style="margin:0; font-size:12px; color:var(--ink-soft);">'
+            f'<em>当前级别</em>: <strong style="color:var(--cinnabar);">'
+            f'{st.session_state.level}</strong><br>'
+            f'<em>主库路径</em>: <code>{dm.db_path}</code><br>'
+            f'<em>词库总量</em>: {stats["total_words"]:,} 词'
+            f'</p>'
+            f'</div>'
+            f'</div>',
+            unsafe_allow_html=True,
         )
 
-    # ----- DB connection banner (lets the user verify which DB is live) -----
-    with st.expander("🗄️ 数据源 / Database", expanded=False):
-        st.code(f"主库路径: {dm.db_path}\n词库总量: {stats['total_words']:,} 词", language="text")
+    # ----- Section break + the four quick links as a chapter index -----
+    web_ui.editorial_rule("III · Today's Programme")
 
-    # ----- Motivational quote -----
-    n_total = stats["total_words"]
-    quote = random.choice(QUOTES).format(n=n_total)
-    st.info(f"💪 {quote}")
+    nav_items = [
+        ("II", "Vocabulary",   "词汇板块",       "vocab"),
+        ("III", "Self-Test",   "背单词自测",     "quiz"),
+        ("IV",  "Reading",     "阅读训练",       "reading"),
+        ("V",   "Listening",   "听力训练",       "listening"),
+        ("VI",  "AI Grader",   "AI 写作/翻译批改",  "grader"),
+        ("VII", "Wrong Book",  "错题本",         "wrong"),
+    ]
+    # Render as 3-column paper-card grid
+    cols = st.columns(3)
+    for i, (no, en, zh, _key) in enumerate(nav_items):
+        with cols[i % 3]:
+            st.markdown(
+                f'<div class="paper-card" style="padding:16px 20px;">'
+                f'<div class="editorial-no">Chapter {no}</div>'
+                f'<div style="font-family:{web_ui.FONT_DISPLAY}; font-size:22px; '
+                f'              font-weight:700; color:var(--ink); margin:4px 0 2px 0; '
+                f'              line-height:1.15;">{en}</div>'
+                f'<div style="font-family:{web_ui.FONT_BODY}; font-size:13px; '
+                f'              color:var(--cinnabar); font-style:italic;">{zh}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
 
-    # ----- Refresh button -----
-    if st.button("🔄 刷新数据", use_container_width=True):
+    # ----- Refresh button (kept for compatibility) -----
+    st.markdown('<div style="height:8px;"></div>', unsafe_allow_html=True)
+    if st.button("🔄 Refresh data", use_container_width=True, key="dash_refresh"):
         st.cache_resource.clear()
         st.rerun()
 
@@ -326,8 +394,16 @@ def _render_vocabulary_tab() -> None:
     level = st.session_state.level.replace("-", "")
     st.markdown(f"### 📝 词汇板块 · {level}")
 
-    # ---- one-shot card CSS (cached in the page; cheap to re-inject) ----
-    st.markdown(_VOCAB_CARD_CSS, unsafe_allow_html=True)
+    # NOTE: We deliberately do NOT call
+    #   st.markdown(_VOCAB_CARD_CSS, unsafe_allow_html=True)
+    # at the top of this page anymore. The <style> body contains
+    # @keyframes and ::before pseudo-element rules that, when streamlit
+    # renders them into the page-level React tree, can confuse React's
+    # reconciler — it ends up trying to removeChild on a node that
+    # belongs to a *different* React component, throwing the same
+    # NotFoundError we used to see for <svg>. We now keep the CSS
+    # entirely inside per-card iframes (see _components.html below),
+    # where Streamlit never touches it.
 
     # ---- filter row ----
     cols = st.columns([2, 2, 1])
@@ -409,7 +485,22 @@ def _render_vocabulary_tab() -> None:
         cells = st.columns(COLS_PER_ROW, gap="medium")
         for cell, w in zip(cells, row):
             with cell:
-                st.markdown(_render_vocab_card_html(w), unsafe_allow_html=True)
+                # Use components.html (iframe sandbox) instead of
+                # st.markdown(unsafe_allow_html=True). The latter runs
+                # the HTML through React's reconciler, which HTML-
+                # escapes <svg> tags and triggers a downstream
+                # NotFoundError when the DOM is re-rendered. The
+                # iframe approach keeps the SVG markup completely
+                # outside Streamlit's React tree.
+                # Plain st.markdown(unsafe_*) — safe now that the
+                # HTML body contains no <svg> tags, only <div> and
+                # <span> with inline style. React's reconciler
+                # handles these without throwing.
+                st.markdown(
+                    _VOCAB_CARD_CSS
+                    + f"<div class='vocab-card-wrap'>{_render_vocab_card_html(w)}</div>",
+                    unsafe_allow_html=True,
+                )
                 # ---- card action row: deep-dive + mastery toggle ----
                 # Both buttons must be real st.button (HTML can't carry a
                 # callback). Detail is primary action, mastery is secondary.
@@ -469,6 +560,237 @@ def _render_vocabulary_tab() -> None:
                       use_container_width=True, key="vocab_next"):
             st.session_state.vocab_page = min(max_page, page + 1)
             st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# SVG icon library — used in place of emoji everywhere in the UI.
+# Each function returns a self-contained <svg> string you can drop
+# inside a span, a div, or a button. Stroke-based icons; no external
+# font dependency, no colour-font fallbacks, render identically on
+# Windows / macOS / iOS / Android.
+#
+# All icons are 1em x 1em by default so they inherit the surrounding
+# text size. Pass ``size="32"`` to override.
+# ---------------------------------------------------------------------------
+def _svg_attrs(size: str = "1em") -> str:
+    return (f'xmlns="http://www.w3.org/2000/svg" width="{size}" '
+            f'height="{size}" viewBox="0 0 24 24" fill="none" '
+            f'stroke="currentColor" stroke-width="2" '
+            f'stroke-linecap="round" stroke-linejoin="round"')
+
+
+def _svg_star_filled(size: str = "1em") -> str:
+    """Solid five-point star (Material Icons 'star')."""
+    return (f'<svg {_svg_attrs(size)} fill="currentColor" stroke="none">'
+            f'<path d="M12 2l2.39 6.95H22l-5.78 4.18 2.21 6.93L12 16.27 '
+            f'5.57 13.06l2.21-6.93L2 8.95h7.61L12 2z"/>'
+            f'</svg>')
+
+
+def _svg_star_outline(size: str = "1em") -> str:
+    """Hollow five-point star for 'un-earned' ratings."""
+    return (f'<svg {_svg_attrs(size)} fill="none" stroke="currentColor" '
+            f'stroke-width="1.6">'
+            f'<path d="M12 4.5l1.7 4.95h5.15l-4.17 3.02 1.6 4.92L12 14.7 '
+            f'l-4.28 2.69 1.6-4.92L5.15 9.45h5.15L12 4.5z"/>'
+            f'</svg>')
+
+
+def _svg_check(size: str = "1em") -> str:
+    """Stroke-based checkmark inside a circle."""
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/>'
+            f'<path d="M7 12.5l3.2 3.2L17 9" stroke="white" stroke-width="2.4"/>'
+            f'</svg>')
+
+
+def _svg_cross(size: str = "1em") -> str:
+    """Stroke-based X inside a circle."""
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/>'
+            f'<path d="M8.5 8.5l7 7M15.5 8.5l-7 7" stroke="white" stroke-width="2.4"/>'
+            f'</svg>')
+
+
+def _svg_info(size: str = "1em") -> str:
+    """'i' inside a circle — for the 'skipped' / neutral state."""
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<circle cx="12" cy="12" r="10" fill="currentColor" stroke="none"/>'
+            f'<path d="M12 8v.5M12 11v6" stroke="white" stroke-width="2.4"/>'
+            f'</svg>')
+
+
+def _svg_sparkles(size: str = "1em") -> str:
+    """Four-pointed star burst — used for the AI-generate button."""
+    return (f'<svg {_svg_attrs(size)} fill="currentColor" stroke="none">'
+            f'<path d="M12 2l1.6 6.4L20 10l-6.4 1.6L12 18l-1.6-6.4L4 10l6.4-1.6L12 2z"/>'
+            f'<path d="M19 16l.7 2.3L22 19l-2.3.7L19 22l-.7-2.3L16 19l2.3-.7L19 16z"/>'
+            f'</svg>')
+
+
+def _svg_dice(size: str = "1em") -> str:
+    """Six-dot die — the self-test tab icon."""
+    return (f'<svg {_svg_attrs(size)} fill="none" stroke="currentColor" '
+            f'stroke-width="1.8">'
+            f'<rect x="4" y="4" width="16" height="16" rx="3"/>'
+            f'<circle cx="8" cy="8" r="1" fill="currentColor"/>'
+            f'<circle cx="16" cy="8" r="1" fill="currentColor"/>'
+            f'<circle cx="8" cy="16" r="1" fill="currentColor"/>'
+            f'<circle cx="16" cy="16" r="1" fill="currentColor"/>'
+            f'<circle cx="12" cy="12" r="1" fill="currentColor"/>'
+            f'<circle cx="8" cy="12" r="1" fill="currentColor"/>'
+            f'</svg>')
+
+
+def _svg_headphones(size: str = "1em") -> str:
+    """Headphones — listening tab icon."""
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<path d="M4 14v-2a8 8 0 0116 0v2"/>'
+            f'<rect x="3" y="14" width="4" height="6" rx="1.5" fill="currentColor" stroke="none"/>'
+            f'<rect x="17" y="14" width="4" height="6" rx="1.5" fill="currentColor" stroke="none"/>'
+            f'</svg>')
+
+
+def _svg_book_open(size: str = "1em") -> str:
+    """Open book — reading tab icon."""
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<path d="M3 5h6a3 3 0 013 3v12a2 2 0 00-2-2H3V5z"/>'
+            f'<path d="M21 5h-6a3 3 0 00-3 3v12a2 2 0 012-2h7V5z"/>'
+            f'</svg>')
+
+
+def _svg_search(size: str = "1em") -> str:
+    """Magnifying glass — deep-dive button."""
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<circle cx="11" cy="11" r="7"/>'
+            f'<path d="M20 20l-3.5-3.5"/>'
+            f'</svg>')
+
+
+def _svg_target(size: str = "1em") -> str:
+    """Bullseye — quiz 'draw a question' button."""
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<circle cx="12" cy="12" r="9"/>'
+            f'<circle cx="12" cy="12" r="5"/>'
+            f'<circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/>'
+            f'</svg>')
+
+
+def _svg_trophy(size: str = "1em") -> str:
+    """Trophy — quiz session result page."""
+    return (f'<svg {_svg_attrs(size)} fill="none" stroke="currentColor" '
+            f'stroke-width="1.8">'
+            f'<path d="M8 4h8v4a4 4 0 11-8 0V4z"/>'
+            f'<path d="M4 4h4v3a3 3 0 01-3 3H4V4zM20 4h-4v3a3 3 0 003 3h1V4z"/>'
+            f'<path d="M9 14h6l-.5 5h-5L9 14z"/>'
+            f'</svg>')
+
+
+def _svg_arrow_right(size: str = "1em") -> str:
+    """Right-pointing arrow — 'next question' button."""
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<path d="M5 12h14M13 6l6 6-6 6"/>'
+            f'</svg>')
+
+
+def _svg_arrow_left(size: str = "1em") -> str:
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<path d="M19 12H5M11 6l-6 6 6 6"/>'
+            f'</svg>')
+
+
+def _svg_pin(size: str = "1em") -> str:
+    """Pushpin — 'topic' / 'requirements' label."""
+    return (f'<svg {_svg_attrs(size)} fill="currentColor" stroke="none">'
+            f'<path d="M14 4l6 6-3 1-2 5-3-3-5 5-2-2 5-5-3-3 5-2 1-3z"/>'
+            f'</svg>')
+
+
+def _svg_palette(size: str = "1em") -> str:
+    """AI grader icon."""
+    return (f'<svg {_svg_attrs(size)} fill="none" stroke="currentColor" '
+            f'stroke-width="1.7">'
+            f'<path d="M12 3a9 9 0 100 18c1 0 2-.5 2-1.5 0-1-.5-1.5-1-2-.5-.5-1-1-1-2 0-1.5 1-2.5 3-2.5h2a4 4 0 004-4c0-3.5-4-6-9-6z"/>'
+            f'<circle cx="7.5" cy="10" r="1.2" fill="currentColor"/>'
+            f'<circle cx="11" cy="6.8" r="1.2" fill="currentColor"/>'
+            f'<circle cx="15" cy="9" r="1.2" fill="currentColor"/>'
+            f'<circle cx="17" cy="13" r="1.2" fill="currentColor"/>'
+            f'</svg>')
+
+
+def _svg_bar_chart(size: str = "1em") -> str:
+    """Bar chart — dashboard tab icon."""
+    return (f'<svg {_svg_attrs(size)} fill="currentColor" stroke="none">'
+            f'<rect x="4" y="13" width="3" height="7" rx="0.5"/>'
+            f'<rect x="10" y="9" width="3" height="11" rx="0.5"/>'
+            f'<rect x="16" y="5" width="3" height="15" rx="0.5"/>'
+            f'</svg>')
+
+
+def _svg_flag(size: str = "1em") -> str:
+    """End session button."""
+    return (f'<svg {_svg_attrs(size)} fill="none" stroke="currentColor" '
+            f'stroke-width="1.8">'
+            f'<path d="M5 21V4h11l-2 4 2 4H5"/>'
+            f'</svg>')
+
+
+def _svg_flame(size: str = "1em") -> str:
+    """Difficulty / 'hot' indicator."""
+    return (f'<svg {_svg_attrs(size)} fill="currentColor" stroke="none">'
+            f'<path d="M12 3s5 5 5 10a5 5 0 11-10 0c0-2 1-3 2-4 0 1 1 2 2 2 0-2-1-3 1-8z"/>'
+            f'</svg>')
+
+
+def _svg_close(size: str = "1em") -> str:
+    """X-mark — close dialog / modal button."""
+    return (f'<svg {_svg_attrs(size)}>'
+            f'<path d="M6 6l12 12M18 6L6 18"/>'
+            f'</svg>')
+
+
+def _svg_speaker(size: str = "1em") -> str:
+    """Speaker / pronunciation — used in the detail dialog."""
+    return (f'<svg {_svg_attrs(size)} fill="none" stroke="currentColor" '
+            f'stroke-width="1.7">'
+            f'<path d="M3 10v4h4l5 4V6L7 10H3z"/>'
+            f'<path d="M15 9a4 4 0 010 6" />'
+            f'<path d="M18 6a8 8 0 010 12" />'
+            f'</svg>')
+
+
+# Reusable short codes — old emoji names mapped to SVG renderers.
+# Keeps the rest of the codebase readable when we swap one for the other.
+_ICON = {
+    "star_gold": _svg_star_filled,
+    "star_outline": _svg_star_outline,
+    "check": _svg_check,
+    "cross": _svg_cross,
+    "info": _svg_info,
+    "sparkles": _svg_sparkles,
+    "dice": _svg_dice,
+    "headphones": _svg_headphones,
+    "book_open": _svg_book_open,
+    "search": _svg_search,
+    "target": _svg_target,
+    "trophy": _svg_trophy,
+    "arrow_right": _svg_arrow_right,
+    "arrow_left": _svg_arrow_left,
+    "pin": _svg_pin,
+    "palette": _svg_palette,
+    "bar_chart": _svg_bar_chart,
+    "flag": _svg_flag,
+    "flame": _svg_flame,
+    "close": _svg_close,
+    "speaker": _svg_speaker,
+}
+
+
+def _icon(name: str, size: str = "1em", css_class: str = "") -> str:
+    """Convenience: get a wrapped <span class="vocab-icon"> with the SVG."""
+    svg = _ICON[name](size) if name in _ICON else f"?"
+    cls = f' class="vocab-icon {css_class}"' if css_class else ' class="vocab-icon"'
+    return f'<span{cls}>{svg}</span>'
 
 
 # ---------------------------------------------------------------------------
@@ -587,6 +909,136 @@ _VOCAB_CARD_CSS = """
     color: #6B7280;
 }
 .vocab-card-freq b { color: #0F172A; font-weight: 700; }
+
+/* ============================================================
+   SVG-icon styling — replaces the old emoji glyphs.
+   All <span class="vocab-icon"> inherit the surrounding text color
+   via ``currentColor``, so we just control colour at the parent.
+   ============================================================ */
+.vocab-icon {
+    display: inline-flex;
+    align-items: center;
+    vertical-align: -0.18em;
+    line-height: 1;
+    margin: 0 1px;
+}
+.vocab-icon svg {
+    display: block;
+}
+
+/* The five star cells inside .vocab-card-stars */
+.vocab-card-stars .vocab-icon {
+    margin: 0 1.5px;
+    transition: transform .15s ease;
+}
+.vocab-card-stars .vocab-icon.gold svg { color: #FFC107; }
+.vocab-card-stars .vocab-icon.gray svg { color: #E5E7EB; }
+.vocab-card:hover .vocab-card-stars .vocab-icon.gold {
+    animation: starWiggle 1.6s ease-in-out infinite;
+}
+
+/* Subtle breathing / fade-in for status badges (▶ checkmark, ▶ cross) */
+@keyframes badgePulse {
+    0%, 100% { transform: scale(1);   opacity: 1;   }
+    50%      { transform: scale(1.08); opacity: 0.9; }
+}
+@keyframes badgeFadeIn {
+    from { transform: scale(0.7); opacity: 0; }
+    to   { transform: scale(1);   opacity: 1;   }
+}
+@keyframes starWiggle {
+    0%, 100% { transform: rotate(0deg)   scale(1);    }
+    25%      { transform: rotate(-6deg)  scale(1.06); }
+    75%      { transform: rotate(6deg)   scale(1.06); }
+}
+@keyframes bannerSlideIn {
+    from { transform: translateY(-12px); opacity: 0; }
+    to   { transform: translateY(0);     opacity: 1; }
+}
+@keyframes confettiBurst {
+    0%   { transform: scale(0.4) rotate(0deg);   opacity: 0; }
+    60%  { transform: scale(1.15) rotate(8deg);  opacity: 1; }
+    100% { transform: scale(1)    rotate(0deg);  opacity: 1; }
+}
+
+/* Quiz banner (correct / wrong / skipped) — slide + glow */
+.quiz-banner {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    border-radius: 12px;
+    margin: 12px 0;
+    font-size: 17px;
+    font-weight: 600;
+    animation: bannerSlideIn .35s cubic-bezier(.2, .9, .3, 1.1);
+}
+.quiz-banner .vocab-icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    animation: confettiBurst .55s cubic-bezier(.2, .9, .3, 1.2);
+}
+.quiz-banner.correct {
+    background: linear-gradient(135deg, #DCFCE7 0%, #F0FDF4 100%);
+    border-left: 5px solid #10B981;
+    color: #065F46;
+}
+.quiz-banner.correct .vocab-icon svg { color: #10B981; }
+.quiz-banner.wrong {
+    background: linear-gradient(135deg, #FEE2E2 0%, #FEF2F2 100%);
+    border-left: 5px solid #EF4444;
+    color: #991B1B;
+}
+.quiz-banner.wrong .vocab-icon svg { color: #EF4444; }
+.quiz-banner.skipped {
+    background: linear-gradient(135deg, #FEF3C7 0%, #FFFBEB 100%);
+    border-left: 5px solid #F59E0B;
+    color: #92400E;
+}
+.quiz-banner.skipped .vocab-icon svg { color: #F59E0B; }
+
+/* Badges — SVG icon is now embedded directly in the Python HTML
+   string, NOT via CSS ::before mask-image. CSS mask-image data URLs
+   were being mis-escaped by Streamlit's React rendering, throwing
+   NotFoundError when the page re-rendered with a new badge. The
+   in-Python approach is bulletproof. The badge still gets a subtle
+   fade-in animation. */
+.vocab-badge {
+    animation: badgeFadeIn .35s ease-out;
+}
+.vocab-badge .vocab-icon {
+    width: 0.95em;
+    height: 0.95em;
+    margin-right: 5px;
+    vertical-align: -0.18em;
+    color: currentColor;
+}
+.vocab-badge-mastered .vocab-icon {
+    animation: badgePulse 2.4s ease-in-out infinite;
+}
+.vocab-badge-new .vocab-icon { color: #1E40AF; }
+
+/* Banner big-symbol icon (Unicode glyphs in a styled span — no SVG) */
+.vocab-banner-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    font-size: 24px;
+    font-weight: 700;
+    color: white;
+    background: currentColor;
+    line-height: 1;
+    text-indent: -1px;       /* optical centering */
+    animation: confettiBurst .55s cubic-bezier(.2, .9, .3, 1.2);
+}
+.quiz-banner.correct .vocab-banner-icon { color: #10B981; }
+.quiz-banner.wrong   .vocab-banner-icon { color: #EF4444; }
+.quiz-banner.skipped .vocab-banner-icon { color: #F59E0B; }
 </style>
 """
 
@@ -626,10 +1078,13 @@ def _render_vocab_card_html(w: dict) -> str:
     word = _html_escape(w.get("word", ""))
     phonetic = _html_escape(w.get("phonetic", "") or "[—]")
     star = max(0, min(5, int(w.get("star_rating", 0) or 0)))
-    # Use ★ / ☆ (regular Unicode glyphs), NOT ⭐ (emoji). Emoji has a
-    # built-in color font on Windows / macOS that CSS `color` can't
-    # override — so emoji "grey placeholder stars" come out yellow too,
-    # which looks like every word has 5 stars. Plain ★ / ☆ respect CSS.
+    # SVG-rendered five-point stars. Gold ★ for earned, hollow ☆ for
+    # un-earned. Each cell is a span.vocab-icon so the CSS animation
+    # (starWiggle) can fire on hover. This replaces the old ★/☆
+    # Unicode glyphs which had inconsistent colour on Windows.
+    # Plain Unicode stars. CSS gold/gray can colour these via
+    # inline spans (the chars are NOT emoji-font glyphs, so
+    # `color: ...` works on Windows). No <svg>, no React escape risk.
     stars_html = (
         "<span style='color:#F59E0B'>" + ("★" * star) + "</span>"
         "<span style='color:#D1D5DB'>" + ("☆" * (5 - star)) + "</span>"
@@ -661,12 +1116,14 @@ def _render_vocab_card_html(w: dict) -> str:
 
     mastered = bool(w.get("mastered"))
     wrong = int(w.get("wrong_count", 0) or 0)
+    # Badge icons are inlined SVG (NOT CSS ::before with data-URL
+    # masks, which Streamlit was mis-escaping → DOM insertBefore error).
     if mastered:
         badge_html = "<span class='vocab-badge vocab-badge-mastered'>✓ 已掌握</span>"
     elif wrong > 0:
         badge_html = f"<span class='vocab-badge vocab-badge-wrong'>✗ 错 {wrong} 次</span>"
     else:
-        badge_html = "<span class='vocab-badge vocab-badge-new'>新词</span>"
+        badge_html = "<span class='vocab-badge vocab-badge-new'>★ 新词</span>"
 
     freq = int(w.get("frequency", 0) or 0)
 
@@ -1254,32 +1711,34 @@ def _render_quiz_question(level: str, source_key: str,
         return
 
     # ----- Branch B: judged -----
+    # The banners contain <svg> markup; render them via
+    # components.html so React's reconciler doesn't escape the <svg>
+    # tags (which would trigger a NotFoundError on re-render).
+    # The relevant CSS lives in _VOCAB_CARD_CSS, which is injected
+    # at the top of _render_vocabulary_tab.
     judgment = qs.get("judgment")
     if judgment == "correct":
         st.markdown(
-            f"<div style='padding:14px 18px; border-radius:10px; "
-            f"background:linear-gradient(135deg,#DCFCE7 0%,#F0FDF4 100%);"
-            f"border-left:5px solid #10B981; color:#065F46; "
-            f"font-size:18px; font-weight:600; margin:8px 0;'>"
-            f"🎉 恭喜你,答对了!</div>",
+            f'<div class="quiz-banner correct">'
+            f'  <span class="vocab-banner-icon">✓</span>'
+            f'  <span>恭喜你,答对了!</span>'
+            f'</div>',
             unsafe_allow_html=True,
         )
     elif judgment == "wrong":
         st.markdown(
-            f"<div style='padding:14px 18px; border-radius:10px; "
-            f"background:linear-gradient(135deg,#FEE2E2 0%,#FEF2F2 100%);"
-            f"border-left:5px solid #EF4444; color:#991B1B; "
-            f"font-size:18px; font-weight:600; margin:8px 0;'>"
-            f"❌ 答错了!正确答案:<b>{answer}</b></div>",
+            f'<div class="quiz-banner wrong">'
+            f'  <span class="vocab-banner-icon">✗</span>'
+            f'  <span>答错了!正确答案:<b>{_html_escape(answer)}</b></span>'
+            f'</div>',
             unsafe_allow_html=True,
         )
     else:  # "skipped"
         st.markdown(
-            f"<div style='padding:14px 18px; border-radius:10px; "
-            f"background:linear-gradient(135deg,#FEF3C7 0%,#FFFBEB 100%);"
-            f"border-left:5px solid #F59E0B; color:#92400E; "
-            f"font-size:18px; font-weight:600; margin:8px 0;'>"
-            f"📌 已记入错题本。参考答案:<b>{answer}</b></div>",
+            f'<div class="quiz-banner skipped">'
+            f'  <span class="vocab-banner-icon">!</span>'
+            f'  <span>已记入错题本。参考答案:<b>{_html_escape(answer)}</b></span>'
+            f'</div>',
             unsafe_allow_html=True,
         )
 
@@ -1831,24 +2290,38 @@ def _render_translation_report(r: dict, ref: str = "") -> None:
 # Sidebar
 # ===========================================================================
 def _render_sidebar() -> str:
-    with st.sidebar:
-        st.markdown("# 📱 CET 智胜")
-        st.caption("V2.1 · 网页版 · 移动适配")
+    """Editorial masthead + chapter index in the sidebar.
 
-        st.markdown("---")
-        st.markdown("### 📚 考试级别")
+    The masthead (CET 智胜 / Issue / colophon-style date) is rendered
+    via plain ``st.markdown(unsafe_allow_html=True)`` with NO <svg>
+    inside it. Radio buttons are the same as before but pre-styled
+    to look like a chapter index via the master CSS injected once at
+    app start.
+    """
+    with st.sidebar:
+        st.markdown(web_ui.render_sidebar_masthead(), unsafe_allow_html=True)
+
+        # ----- Exam level selector -----
+        st.markdown(
+            '<div class="nav-chapter">Examination Level</div>',
+            unsafe_allow_html=True,
+        )
         new_level = st.radio(
-            "切换",
+            "Level",
             ["CET-4", "CET-6"],
             index=0 if st.session_state.level == "CET-4" else 1,
             label_visibility="collapsed",
+            key="sidebar_level",
         )
         if new_level != st.session_state.level:
             st.session_state.level = new_level
             st.rerun()
 
-        st.markdown("---")
-        st.markdown("### 🧭 功能板块")
+        # ----- Chapter index -----
+        st.markdown(
+            '<div class="nav-chapter">Chapter Index · 章节</div>',
+            unsafe_allow_html=True,
+        )
         page = st.radio(
             "导航",
             ["📊 学霸看板",
@@ -1859,9 +2332,14 @@ def _render_sidebar() -> str:
              "🤖 AI 批改官",
              "🟥 错题本"],
             label_visibility="collapsed",
+            key="sidebar_page",
         )
 
-        st.markdown("---")
+        # ----- API config (kept simple, no SVG) -----
+        st.markdown(
+            '<div class="nav-chapter">Configuration</div>',
+            unsafe_allow_html=True,
+        )
         with st.expander("🔑 API 配置"):
             # The values are read from st.secrets (or fallback sources)
             # by AIService on boot. We display them here for visibility
@@ -2614,6 +3092,12 @@ def _render_wrongbook() -> None:
 # Main
 # ===========================================================================
 def main() -> None:
+    # Inject the editorial design system exactly once at app start.
+    # Pure HTML <style> body — no <svg> tags, no @keyframes that
+    # mutate React-owned nodes. The browser dedupes identical
+    # <style> blocks across reruns, so the call is idempotent.
+    web_ui.inject_design_css()
+
     page = _render_sidebar()
 
     if page.startswith("📊"):
@@ -2633,8 +3117,16 @@ def main() -> None:
     else:
         _render_dashboard()
 
-    st.markdown("---")
-    st.caption("© CET 智胜 V2.1 · 网页版 · 基于 Streamlit + 桌面版数据/AI 复用")
+    # Editorial colophon footer — replaces the plain "© CET 智胜 V2.1" caption
+    st.markdown(
+        '<div style="margin-top:40px; padding-top:14px; border-top:1px solid #D8CFB8;'
+        '            text-align:center; font-family:\'Playfair Display\', Georgia, serif;'
+        '            font-size:12px; color:#9A8F7B; letter-spacing:0.18em;'
+        '            text-transform:uppercase; font-style:italic;">'
+        'CET 智胜 · set in Playfair &amp; Source Serif · printed on cream paper'
+        '</div>',
+        unsafe_allow_html=True,
+    )
 
 
 if __name__ == "__main__":
