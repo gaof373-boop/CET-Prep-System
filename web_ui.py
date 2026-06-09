@@ -85,12 +85,30 @@ section.main,
 
 /* === HEADER & SIDEBAR === */
 /* NB: we deliberately do NOT zero-out the header height. The earlier
-   "height: 0 !important" rule killed the sidebar collapse button
-   (which lives inside the header toolbar) and made the page feel
-   like a strange "no top bar" — plus the user couldn't open the
-   sidebar from the main pane. We just want the header chrome to
-   be visually invisible WHILE keeping the clickable control on
-   screen. */
+   "height: 0 !important" rule killed the sidebar toggle and stranded
+   users — they couldn't reopen the sidebar once it had been
+   auto-collapsed on mobile. We keep the header chrome visually blank
+   WHILE keeping the clickable control on screen.
+
+   Streamlit 1.58.0 actual DOM (verified by grepping the minified
+   bundle — see /tools/notes/streamlit-1.58-sidebar-buttons.md):
+     - stHeader                 ← the top header bar
+     - stAppToolbar / stToolbar ← inside the header; hidden by us
+     - stExpandSidebarButton    ← shows in header when sidebar IS
+                                  collapsed; this is the ">>" at top-left
+     - stSidebar                ← the sidebar itself
+     - stSidebarHeader          ← top edge of the sidebar
+     - stSidebarCollapseButton  ← the "<<" inside sidebar; React sets
+                                  visibility:hidden by default and
+                                  only flips to visible on sidebar
+                                  mouseenter — which means on mobile
+                                  (no hover) the user can never close
+                                  the sidebar again.
+
+   The OLD selectors in this file (`stSidebarCollapsedControl`,
+   `baseButton-headerNoPadding`) were leftover from a 1.20-era
+   Streamlit and DON'T EXIST in 1.58.0 — that's why prior fix
+   attempts didn't take. We use the real 1.58 names below. */
 header[data-testid="stHeader"],
 [data-testid="stHeader"] > div {{
     background: transparent !important;
@@ -99,15 +117,17 @@ header[data-testid="stHeader"],
     /* Keep height intact; just visually blank. */
     height: auto !important;
     min-height: 0 !important;
+    z-index: 0 !important;          /* keep header under sidebar on mobile */
 }}
-/* Belt-and-suspenders: even if some other component is being
-   mistargeted by a global "display:none", the collapse button is
-   explicitly restored here. */
-[data-testid="stSidebarCollapsedControl"],
-[data-testid="baseButton-headerNoPadding"],
-button[data-testid="baseButton-headerNoPadding"] {{
+/* Belt-and-suspenders: explicitly restore BOTH buttons with the
+   correct 1.58.0 data-testid values, force them visible at all
+   times (including on touch devices where :hover never fires),
+   and give them a small paper-warm chip so they read as controls
+   not chrome. */
+[data-testid="stExpandSidebarButton"],
+[data-testid="stSidebarCollapseButton"] {{
     display: inline-flex !important;
-    visibility: visible !important;
+    visibility: visible !important;  /* override React's hover-gated hide */
     z-index: 999999 !important;
     color: var(--ink) !important;
     background: var(--paper-warm) !important;
@@ -116,12 +136,31 @@ button[data-testid="baseButton-headerNoPadding"] {{
     border-radius: 0 !important;
     padding: 6px 10px !important;
     margin: 8px 0 0 8px !important;
+    cursor: pointer !important;
+    transition: background .15s ease, color .15s ease !important;
+}}
+[data-testid="stExpandSidebarButton"]:hover,
+[data-testid="stSidebarCollapseButton"]:hover {{
+    background: var(--ink) !important;
+    color: var(--paper) !important;
 }}
 /* Hide the rest of the Streamlit chrome — status widget, footer,
-   and the right-side deploy toolbar (not needed for study). */
+   and the right-side deploy toolbar (not needed for study). We do
+   NOT blanket-hide [data-testid="stToolbar"] — that's the parent
+   wrapper of stExpandSidebarButton, and nuke-ing it strands mobile
+   users with a collapsed sidebar they can never re-open. Instead
+   we hide the deploy/menu widgets individually below. */
 #MainMenu, footer,
-[data-testid="stToolbar"],
 [data-testid="stStatusWidget"] {{
+    display: none !important;
+}}
+/* Hide the "Made with Streamlit" / hamburger / deploy menu that
+   lives inside stAppToolbar — but NOT stExpandSidebarButton which
+   is a sibling and is essential for mobile. We use the toolbar's
+   right-side action container; the expand button is in a separate
+   left-side child. */
+[data-testid="stToolbar"] [data-testid="stToolbarActions"],
+[data-testid="stAppDeployButton"] {{
     display: none !important;
 }}
 
