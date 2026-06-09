@@ -39,6 +39,18 @@ from core.data_manager import DataManager  # noqa: E402
 AUDIO_DIR = ROOT / "database" / "audio"
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
+# Voice split defaults — edge-tts voice IDs, not OpenAI nova/shimmer.
+# These are the standard "clear American female / warm American male" pair.
+VOICE_WOMAN = "en-US-AriaNeural"
+VOICE_MAN = "en-US-GuyNeural"
+
+# Regex: line that starts (at line start, with optional leading space) with
+# W: or M: followed by content. Case-insensitive on the tag.
+SPEAKER_RE = re.compile(r"^\s*([WM]):\s*(.+?)\s*$", re.IGNORECASE | re.MULTILINE)
+# Stray speaker tags that appear mid-paragraph (no leading ^). Rare, but
+# strip them so the TTS doesn't literally read "W colon".
+INLINE_SPEAKER_RE = re.compile(r"\b[WM]:\s*", re.IGNORECASE)
+
 
 def _safe_filename(level: str, year: int, item_id: int) -> str:
     """Build a deterministic filename: ``CET4_2024_12.mp3``.
@@ -53,18 +65,86 @@ def _safe_filename(level: str, year: int, item_id: int) -> str:
     return f"{level}_{year_part}_{item_id}.mp3"
 
 
+def _split_speakers(text: str) -> list[tuple[str, str]]:
+    """Split a dialogue script into (speaker, line) tuples.
+
+    Returns an empty list if the text has no W:/M: tags at all — caller
+    should fall back to single-voice synthesis in that case.
+
+    Lines without a recognised tag are dropped (they're usually narration
+    headings like "Question 1:") — if you want them read aloud, leave them
+    tagged or use --voice-split=off.
+    """
+    matches = SPEAKER_RE.findall(text)
+    out: list[tuple[str, str]] = []
+    for tag, line in matches:
+        speaker = "W" if tag.upper() == "W" else "M"
+        line = INLINE_SPEAKER_RE.sub("", line).strip()
+        if line:
+            out.append((speaker, line))
+    return out
+
+
 async def _synth_one(voice: str, rate: str, text: str, out_path: Path) -> None:
+    """Single-voice synthesis (fallback for rows without W:/M: tags)."""
     import edge_tts  # heavy import, only when actually synthesising
 
-    # Strip the W:/M: speaker tags we have in some DB rows so the TTS
-    # doesn't literally read "W colon".
-    cleaned = re.sub(r"^[WwMm]:\s*", "", text, flags=re.MULTILINE)
+    # Strip stray inline tags so TTS doesn't say "W colon".
+    cleaned = INLINE_SPEAKER_RE.sub("", text)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
     if not cleaned:
         return
 
     comm = edge_tts.Communicate(cleaned, voice=voice, rate=rate)
     await comm.save(str(out_path))
+
+
+async def _synth_multi_voice(
+    rate: str, text: str, out_path: Path,
+    voice_w: str = VOICE_WOMAN, voice_m: str = VOICE_MAN,
+) -> None:
+    """Per-line TTS with woman/man voice alternation, then byte-concat.
+
+    Falls back to single-voice (woman by default) if the text has no
+    recognisable W:/M: tags at all. This keeps backward-compat for
+    monologue-style listening passages.
+
+    Naive byte-concat works because edge-tts encodes both voices at
+    identical bitrate / sample-rate, and each MPEG-1 Layer 3 frame is
+    self-contained (carries its own sync + header). No ffmpeg / pydub
+    dependency needed.
+    """
+    import edge_tts  # heavy import, only when actually synthesising
+
+    lines = _split_speakers(text)
+    if not lines:
+        # No dialogue structure — treat as monologue with the woman voice
+        # (historical default).
+        await _synth_one(voice_w, rate, text, out_path)
+        return
+
+    voice_map = {"W": voice_w, "M": voice_m}
+    audio_blobs: list[bytes] = []
+    for speaker, line in lines:
+        comm = edge_tts.Communicate(line, voice=voice_map[speaker], rate=rate)
+        chunks: list[bytes] = []
+        async for ev in comm.stream():
+            if ev["type"] == "audio":
+                chunks.append(ev["data"])
+        if chunks:
+            audio_blobs.append(b"".join(chunks))
+
+    if not audio_blobs:
+        # All lines produced nothing — shouldn't happen, but be defensive.
+        await _synth_one(voice_w, rate, text, out_path)
+        return
+
+    out_path.write_bytes(b"".join(audio_blobs))
+
+
+def _synth_split_sync(rate: str, text: str, out_path: Path) -> None:
+    """Thread-safe wrapper for the multi-voice path."""
+    asyncio.run(_synth_multi_voice(rate, text, out_path))
 
 
 def _synth_sync(voice: str, rate: str, text: str, out_path: Path) -> None:
@@ -86,6 +166,8 @@ def main() -> int:
                         help="最多处理多少条 (0=无限制,默认)")
     parser.add_argument("--dry-run", action="store_true",
                         help="只打印计划,不真生成")
+    parser.add_argument("--voice-split", choices=["on", "off"], default="on",
+                        help="是否按 W:/M: 切分男女声 (默认 on);off 则用 --voice 单声")
     args = parser.parse_args()
 
     init_database()
@@ -102,6 +184,7 @@ def main() -> int:
             rows = rows[: args.limit]
         print(f"\n{'=' * 60}")
         print(f"  🎙️  {level}  共 {len(rows)} 条 listening 记录")
+        print(f"  模式: {'男女声切分 (W=Aria / M=Guy)' if args.voice_split == 'on' else '单声 ' + args.voice}")
         print(f"{'=' * 60}")
         for r in rows:
             text = (r.get("audio_script") or "").strip()
@@ -131,10 +214,21 @@ def main() -> int:
                 continue
             total_planned += 1
             if args.dry_run:
-                print(f"  📝 id={r['id']:>3d}  -> {fname}  ({len(text)} chars)  [dry-run]")
+                # show what we'd do
+                if args.voice_split == "on":
+                    lines = _split_speakers(text)
+                    w = sum(1 for s, _ in lines if s == "W")
+                    m = sum(1 for s, _ in lines if s == "M")
+                    tag_info = f"W×{w} M×{m}" if lines else "无标签(单声)"
+                else:
+                    tag_info = "单声"
+                print(f"  📝 id={r['id']:>3d}  -> {fname}  ({len(text)} chars, {tag_info})  [dry-run]")
                 continue
             try:
-                _synth_sync(args.voice, args.rate, text, out_path)
+                if args.voice_split == "on":
+                    _synth_split_sync(args.rate, text, out_path)
+                else:
+                    _synth_sync(args.voice, args.rate, text, out_path)
                 size_kb = out_path.stat().st_size // 1024
                 try:
                     with dm._conn() as c:  # type: ignore[attr-defined]
@@ -146,7 +240,8 @@ def main() -> int:
                         c.commit()
                 except Exception as e:
                     print(f"  ⚠ id={r['id']}  DB 更新 audio_file 失败: {e}")
-                print(f"  ✅ id={r['id']:>3d}  {fname}  ({size_kb}KB, voice={args.voice})")
+                voice_info = "split" if args.voice_split == "on" else args.voice
+                print(f"  ✅ id={r['id']:>3d}  {fname}  ({size_kb}KB, voice={voice_info})")
                 total_done += 1
             except Exception as e:
                 print(f"  ❌ id={r['id']:>3d}  {fname}  失败: {e}")
