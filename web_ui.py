@@ -117,32 +117,92 @@ header[data-testid="stHeader"],
     /* Keep height intact; just visually blank. */
     height: auto !important;
     min-height: 0 !important;
-    z-index: 0 !important;          /* keep header under sidebar on mobile */
+    /* Streamlit's z-index layout (verified in 1.58.0 minified bundle):
+         stSidebar   = zIndices.sidebar (~1100)
+         section.main= zIndices.sidebar + 1 (1101)
+         stHeader    = zIndices.header (~1000, below sidebar)
+       The header MUST sit ABOVE the main content (1101) so the
+       stExpandSidebarButton inside it is clickable, and BELOW or
+       AT the sidebar so the sidebar can cover it on desktop. We
+       use 1000 (=zIndices.header) which is the default — this is
+       what the previous "z-index:0" rule broke. */
+    z-index: 1000 !important;
+    position: relative !important;
 }}
 /* Belt-and-suspenders: explicitly restore BOTH buttons with the
    correct 1.58.0 data-testid values, force them visible at all
    times (including on touch devices where :hover never fires),
    and give them a small paper-warm chip so they read as controls
-   not chrome. */
-[data-testid="stExpandSidebarButton"],
-[data-testid="stSidebarCollapseButton"] {{
+   not chrome.
+
+   Key layout fix: pin the expand button to the top-left of the
+   VIEWPORT (not the header, which can be pushed under sidebar).
+   And pin the collapse button to the sidebar's top-right edge so
+   it does NOT scroll away with the rest of the sidebar. */
+[data-testid="stExpandSidebarButton"] {{
     display: inline-flex !important;
-    visibility: visible !important;  /* override React's hover-gated hide */
-    z-index: 999999 !important;
+    visibility: visible !important;
+    z-index: 1200 !important;          /* above sidebar (1100) */
     color: var(--ink) !important;
     background: var(--paper-warm) !important;
     border: 1px solid var(--rule) !important;
-    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.10) !important;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18) !important;
     border-radius: 0 !important;
-    padding: 6px 10px !important;
-    margin: 8px 0 0 8px !important;
+    padding: 8px 12px !important;
+    margin: 10px 0 0 10px !important;
     cursor: pointer !important;
     transition: background .15s ease, color .15s ease !important;
+    /* Pin to top-left of viewport so it never gets pushed off-screen
+       by the sidebar's right edge or by a sticky element. */
+    position: fixed !important;
+    top: 6px !important;
+    left: 6px !important;
+}}
+/* stSidebarCollapseButton lives INSIDE stSidebarHeader (which is the
+   sidebar's top bar). On mobile (no hover) React sets visibility:hidden
+   — we override that. Pin it to sidebar's right edge with position:sticky
+   fallback to position:absolute so it doesn't scroll out of view. */
+[data-testid="stSidebarCollapseButton"] {{
+    display: inline-flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    z-index: 1200 !important;          /* above other sidebar chrome */
+    color: var(--ink) !important;
+    background: var(--paper-warm) !important;
+    border: 1px solid var(--rule) !important;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.18) !important;
+    border-radius: 0 !important;
+    padding: 6px 10px !important;
+    margin: 4px 0 0 0 !important;
+    cursor: pointer !important;
+    transition: background .15s ease, color .15s ease !important;
+    position: sticky !important;
+    top: 0 !important;
+    right: 0 !important;
+    align-self: flex-end !important;
 }}
 [data-testid="stExpandSidebarButton"]:hover,
-[data-testid="stSidebarCollapseButton"]:hover {{
+[data-testid="stExpandSidebarButton"]:focus,
+[data-testid="stSidebarCollapseButton"]:hover,
+[data-testid="stSidebarCollapseButton"]:focus {{
     background: var(--ink) !important;
     color: var(--paper) !important;
+    outline: none !important;
+}}
+/* Also force the parent of stSidebarCollapseButton (RDe wrapper, set
+   to visibility:hidden until mouseenter) to always be visible. The
+   1.58.0 component path is: stSidebar > stSidebarContent > stSidebarHeader
+   > RDe (visibility-gated) > stSidebarCollapseButton. RDe's visibility
+   cascades onto its child, so we have to override BOTH. */
+[data-testid="stSidebarHeader"] {{
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    min-height: 44px !important;
+}}
+[data-testid="stSidebarHeader"] > [data-testid="stSidebarCollapseButton"] {{
+    visibility: visible !important;
 }}
 /* Hide the rest of the Streamlit chrome — status widget, footer,
    and the right-side deploy toolbar (not needed for study). We do
