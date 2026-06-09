@@ -1236,53 +1236,44 @@ def _show_word_detail(w: dict) -> None:
         unsafe_allow_html=True,
     )
 
-    # ----- Star + frequency + status -----
-    s1, s2, s3 = st.columns(3)
-    stars_solid = "★" * star
-    stars_hollow = "☆" * (5 - star)
-    s1.markdown(
-        f"<div style='text-align:center;'>"
-        f"  <div style='font-size:12px; color:#6B7280;'>考频星级</div>"
-        f"  <div style='font-size:24px; line-height:1.2;'>"
-        f"    <span style='color:#F59E0B;'>{stars_solid}</span>"
-        f"    <span style='color:#D1D5DB;'>{stars_hollow}</span>"
-        f"  </div>"
-        f"  <div style='font-size:11px; color:#9CA3AF;'>{star}/5 星</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
-    s2.markdown(
-        f"<div style='text-align:center;'>"
-        f"  <div style='font-size:12px; color:#6B7280;'>真题出现频次</div>"
-        f"  <div style='font-size:28px; font-weight:700; color:#DC2626;'>{freq}</div>"
-        f"  <div style='font-size:11px; color:#9CA3AF;'>越高越要背</div>"
-        f"</div>",
-        unsafe_allow_html=True,
-    )
+    # ----- Compact one-line status strip (replaces 3-column stats) -----
+    # Old version used st.columns(3) for star/freq/status — each column
+    # ~80px tall, totaling ~120px of vertical real estate that pushed
+    # the "meaning" block below the fold on iPhone (844px viewport).
+    # Inlining all three into one ~28px line saves ~90px. All data is
+    # still shown, just horizontal not stacked.
     if mastered:
-        status_color, status_text, status_hint = "#10B981", "✓ 已掌握", "继续保持!"
+        status_color, status_text = "#10B981", "✓ 已掌握"
     elif wrong > 0:
-        status_color, status_text, status_hint = "#EF4444", f"✗ 错 {wrong} 次", "重点攻坚"
+        status_color, status_text = "#EF4444", f"✗ 错 {wrong} 次"
     else:
-        status_color, status_text, status_hint = "#3B82F6", "新词", "首次学习"
-    s3.markdown(
-        f"<div style='text-align:center;'>"
-        f"  <div style='font-size:12px; color:#6B7280;'>掌握状态</div>"
-        f"  <div style='font-size:20px; font-weight:700; color:{status_color};'>"
-        f"    {status_text}</div>"
-        f"  <div style='font-size:11px; color:#9CA3AF;'>{status_hint}</div>"
+        status_color, status_text = "#3B82F6", "新词"
+    st.markdown(
+        f"<div style='display:flex; justify-content:space-between; align-items:center;"
+        f"            padding:6px 14px; margin:0 0 10px 0;"
+        f"            background:#F8FAFC; border:1px solid #E2E8F0; border-radius:6px;"
+        f"            font-size:13px; color:#475569;'>"
+        f"  <span style='color:#F59E0B; font-size:15px; letter-spacing:-0.02em;'>"
+        f"    {'★' * star}<span style='color:#D1D5DB;'>{'☆' * (5 - star)}</span>"
+        f"  </span>"
+        f"  <span>频次 <b style='color:#DC2626;'>{freq}</b></span>"
+        f"  <span style='color:{status_color}; font-weight:600;'>{status_text}</span>"
         f"</div>",
         unsafe_allow_html=True,
     )
 
-    st.markdown("<div style='height:14px;'></div>", unsafe_allow_html=True)
-
-    # ----- Core meaning -----
-    st.markdown("#### 📖 核心释义")
-    if trans_body:
-        st.success(f"### {trans_body}")
-    else:
-        st.info("(暂无中文释义,可在错题本里补充)")
+    # ----- Core meaning — single line, zero margin, hugs the status strip above -----
+    st.markdown(
+        f"<div style='font-size:22px; font-weight:700; color:#0F172A; line-height:1.3;"
+        f"            padding:10px 14px; margin:0;"
+        f"            background:linear-gradient(135deg,#ECFDF5 0%,#F0FDF4 100%);"
+        f"            border-left:4px solid #10B981; border-radius:4px;'>"
+        f"  <span style='color:#6B7280; font-size:14px; font-weight:500;"
+        f"               margin-right:6px;'>📖</span>"
+        f"  {_html_escape(trans_body or '(暂无中文释义,可在错题本里补充)')}"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
     # ----- Real-exam example sentence + translation (D 方案: 默认折叠) -----
     # 手机端用户截图证实: 例句太长把弹窗撑出屏幕, 底部 4 列导航
@@ -1329,8 +1320,6 @@ def _show_word_detail(w: dict) -> None:
         tags = (current.get("tags") or "").strip()
         if tags:
             st.caption(f"📌 来源标签: {tags}")
-
-    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
     # ----- Navigation: 2x2 grid (D 方案: 消除窄屏竖排) -----
     # 之前 4 列在 iPhone 12 Pro (375px) 宽度下被压成 4 行, 用户
