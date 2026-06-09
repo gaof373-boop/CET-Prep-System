@@ -506,15 +506,20 @@ def inject_design_css() -> None:
 # ---------------------------------------------------------------------------
 def editorial_hero(level: str, total_words: int) -> None:
     """Big editorial top-of-page header. Sets the tone for the whole
-    site — feels like opening a magazine."""
+    site — feels like opening a magazine. Fully Chinese — no English."""
     import datetime as _dt
-    issue_date = _dt.date.today().strftime("%B %Y").upper()
+    # Cross-platform month formatting. %-m (no leading zero) is a
+    # glibc-only extension; Windows uses %#m. We pick whichever works.
+    try:
+        issue_date = _dt.date.today().strftime("%Y 年 %#m 月")
+    except ValueError:
+        issue_date = _dt.date.today().strftime("%Y 年 %-m 月")
     st.markdown(
         f"""
 <div class="editorial-hero">
 <div class="pre">CET 智胜 · 大学英语四六级备考 · {issue_date} · 第 {total_words // 100 + 1} 期</div>
-<h1>The <em>English</em> you build tonight<br>is the paper you walk in with.</h1>
-<p class="deck">专为<span style="color:var(--cinnabar); font-weight:600; font-style:normal;">大学</span>生打造的大学英语四六级 (CET-4 / CET-6) 备考系统。当前级别:<em>{level}</em>。五项核心训练 — 词汇、阅读、听力、翻译、写作 — 每一项均配备近十年真题题库与 AI 智能诊断反馈。</p>
+<h1>今晚你构建的英语,<br>就是明天你带进考场的那份<span style="color:var(--cinnabar); font-style:italic; font-weight:700;">底稿</span>。</h1>
+<p class="deck">专为<span style="color:var(--cinnabar); font-weight:700; font-style:normal;">大学</span>生打造的大学英语四六级 (CET-4 / CET-6) 备考系统。当前级别:<em>{level}</em>。五项核心训练 — 词汇、阅读、听力、翻译、写作 — 每一项均配备近十年真题题库与 AI 智能诊断反馈。</p>
 </div>
 """,
         unsafe_allow_html=True,

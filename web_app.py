@@ -210,23 +210,27 @@ def _render_dashboard() -> None:
 
     # ----- Section break + secondary content -----
     web_ui.editorial_rule("II · Today's Editorial")
-
     # ----- Pull-quote + DB info in two paper cards -----
     left, right = st.columns([2, 1])
     with left:
         import datetime as _dt
         quote = random.choice(web_ui.QUOTES)
+        # Cross-platform Chinese day/month formatting. Some Windows
+        # builds don't have strftime %A (English day names) localised
+        # for Chinese, so we build the label manually.
+        _now = _dt.date.today()
+        _zh_days = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+        _zh_date_label = f"{_now.year} 年 {_now.month} 月 {_now.day} 日 · {_zh_days[_now.weekday()]}"
         st.markdown(
             f'<div class="paper-card">'
-            f'<div class="editorial-no" style="margin-bottom:8px;">DAILY · '
-            f'{_dt.date.today().strftime("%A %d %B").upper()}</div>'
+            f'<div class="editorial-no" style="margin-bottom:8px;">今日 · {_zh_date_label}</div>'
             f'<p style="font-family:Georgia, \'Source Serif 4\',serif;'
             f'         font-size:22px; line-height:1.55; color:var(--ink); '
             f'         font-style:italic; margin:0;">'
             f'&ldquo;{quote}&rdquo;'
             f'</p>'
             f'<div style="margin-top:18px; font-size:13px; color:var(--ink-soft); '
-            f'             font-style:italic;">— from the editor&apos;s desk</div>'
+            f'             font-style:italic;">— 编辑寄语</div>'
             f'</div>',
             unsafe_allow_html=True,
         )
@@ -1278,50 +1282,61 @@ def _show_word_detail(w: dict) -> None:
     else:
         st.info("(暂无中文释义,可在错题本里补充)")
 
-    # ----- Real-exam example sentence + translation -----
-    st.markdown("#### ✍️ 真题例句")
+    # ----- Real-exam example sentence + translation (D 方案: 默认折叠) -----
+    # 手机端用户截图证实: 例句太长把弹窗撑出屏幕, 底部 4 列导航
+    # 被压到屏外, 每次切词都要先滚再按. 把例句 + 来源标签收进
+    # expander, 默认收起, 主屏只露"单词-音标-释义"黄金三角.
+    # 想看例句点一下展开即可, 不影响核心背诵流.
+    _example_peek = ""
     if example:
-        try:
-            import re as _re
-            ex_html = _re.sub(
-                r"(?i)\b(" + _re.escape(word) + r")\b",
-                r"<b style='color:#DC2626;background:#FEF3C7;padding:0 4px;"
-                r"border-radius:3px;'>\1</b>",
-                _html_escape(example),
-            )
-        except Exception:
-            ex_html = _html_escape(example)
-        st.markdown(
-            f"<div style='font-size:18px; line-height:1.8; color:#1F2937;"
-            f"           background:#FFFBEB; border-left:5px solid #F59E0B;"
-            f"           padding:14px 18px; border-radius:8px;"
-            f"           font-family:Georgia, \"Times New Roman\", serif;'>"
-            f"“{ex_html}”</div>",
-            unsafe_allow_html=True,
-        )
-        if ex_trans:
+        # 折叠态给一个极简的英文 1 行预览, 让用户知道"有例句可看"
+        _example_peek = f" · “{_html_escape(example)[:28]}{'…' if len(example) > 28 else ''}”"
+    elif (current.get("tags") or "").strip():
+        _example_peek = f" · 来源 {_html_escape((current.get('tags') or '').strip()[:24])}"
+    with st.expander(f"📝 真题例句 & 来源{_example_peek}",
+                     expanded=False):
+        if example:
+            try:
+                import re as _re
+                ex_html = _re.sub(
+                    r"(?i)\b(" + _re.escape(word) + r")\b",
+                    r"<b style='color:#DC2626;background:#FEF3C7;padding:0 4px;"
+                    r"border-radius:3px;'>\1</b>",
+                    _html_escape(example),
+                )
+            except Exception:
+                ex_html = _html_escape(example)
             st.markdown(
-                f"<div style='font-size:15px; color:#475569;"
-                f"           padding:10px 18px 4px 18px;'>"
-                f"💡 {_html_escape(ex_trans)}</div>",
+                f"<div style='font-size:18px; line-height:1.8; color:#1F2937;"
+                f"           background:#FFFBEB; border-left:5px solid #F59E0B;"
+                f"           padding:14px 18px; border-radius:8px;"
+                f"           font-family:Georgia, \"Times New Roman\", serif;'>"
+                f"“{ex_html}”</div>",
                 unsafe_allow_html=True,
             )
-    else:
-        st.caption("此词暂无配套真题例句")
+            if ex_trans:
+                st.markdown(
+                    f"<div style='font-size:15px; color:#475569;"
+                    f"           padding:10px 18px 4px 18px;'>"
+                    f"💡 {_html_escape(ex_trans)}</div>",
+                    unsafe_allow_html=True,
+                )
+        else:
+            st.caption("此词暂无配套真题例句")
 
-    tags = (current.get("tags") or "").strip()
-    if tags:
-        st.caption(f"📌 来源标签: {tags}")
+        tags = (current.get("tags") or "").strip()
+        if tags:
+            st.caption(f"📌 来源标签: {tags}")
 
-    st.markdown("---")
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
-    # ----- Navigation row: ◀ prev / mastery toggle / next ▶ -----
-    # 4 columns so prev/next sit at the edges with the mastery and close
-    # buttons in the middle — keeps thumbs at the corners on mobile.
-    nav_prev, nav_master, nav_close, nav_next = st.columns([1, 2, 1, 1],
-                                                            gap="small")
-
-    with nav_prev:
+    # ----- Navigation: 2x2 grid (D 方案: 消除窄屏竖排) -----
+    # 之前 4 列在 iPhone 12 Pro (375px) 宽度下被压成 4 行, 用户
+    # 反馈"按下一个要往下划". 改为 2x2: 上排 ◀ / ▶ 主导航 (放
+    # 大拇指第一落点), 下排 ✅ / 关闭 次操作. 这样 4 个按钮在
+    # 弹窗底部只占 ~140px, 折叠例句后整窗 < 700px, 一屏直达.
+    nav_row1_l, nav_row1_r = st.columns(2, gap="small")
+    with nav_row1_l:
         prev_disabled = total == 0 or idx <= 0
         if st.button("◀ 上一个",
                       use_container_width=True,
@@ -1329,8 +1344,18 @@ def _show_word_detail(w: dict) -> None:
                       key=f"dlg_prev_{wid}_{idx}"):
             st.session_state.current_word_index = max(0, idx - 1)
             st.rerun()
+    with nav_row1_r:
+        next_disabled = total == 0 or idx >= total - 1
+        if st.button("下一个 ▶",
+                      type="primary" if not next_disabled else "secondary",
+                      use_container_width=True,
+                      disabled=next_disabled,
+                      key=f"dlg_next_{wid}_{idx}"):
+            st.session_state.current_word_index = min(total - 1, idx + 1)
+            st.rerun()
 
-    with nav_master:
+    nav_row2_l, nav_row2_r = st.columns(2, gap="small")
+    with nav_row2_l:
         if mastered:
             if st.button("↩️  取消掌握",
                           type="secondary",
@@ -1345,22 +1370,11 @@ def _show_word_detail(w: dict) -> None:
                           key=f"dlg_master_{wid}_{idx}"):
                 dm.toggle_mastered(wid)
                 st.rerun()
-
-    with nav_close:
+    with nav_row2_r:
         if st.button("关闭",
                       use_container_width=True,
                       key=f"dlg_close_{wid}_{idx}"):
             st.session_state.show_detail_dialog = False
-            st.rerun()
-
-    with nav_next:
-        next_disabled = total == 0 or idx >= total - 1
-        if st.button("下一个 ▶",
-                      type="primary" if not next_disabled else "secondary",
-                      use_container_width=True,
-                      disabled=next_disabled,
-                      key=f"dlg_next_{wid}_{idx}"):
-            st.session_state.current_word_index = min(total - 1, idx + 1)
             st.rerun()
 
 
