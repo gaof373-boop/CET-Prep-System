@@ -1089,9 +1089,11 @@ def _render_vocab_card_html(w: dict) -> str:
     # Plain Unicode stars. CSS gold/gray can colour these via
     # inline spans (the chars are NOT emoji-font glyphs, so
     # `color: ...` works on Windows). No <svg>, no React escape risk.
+    # Now classed so .star-solid / .star-hollow in web_ui.py can add
+    # the gold-glow / soft-hollow text-shadow look.
     stars_html = (
-        "<span style='color:#F59E0B'>" + ("★" * star) + "</span>"
-        "<span style='color:#D1D5DB'>" + ("☆" * (5 - star)) + "</span>"
+        f"<span class='star-solid'>{'★' * star}</span>"
+        f"<span class='star-hollow'>{'☆' * (5 - star)}</span>"
     )
 
     raw_trans = w.get("translation", "") or ""
@@ -2618,12 +2620,28 @@ def _render_practice_session(kind: str,
         ca = correct_letters[qi] if qi < len(correct_letters) else ""
         ok = bool(ua) and (ua == ca)
         color = "#10B981" if ok else "#EF4444"
-        mark = "✅" if ok else "❌"
+        # SVG mark: one-stroke check (ok) or cross (fail), animated via
+        # CSS stroke-dashoffset + pop-in. See .cex-mark in web_ui.py.
+        if ok:
+            mark_svg = (
+                '<span class="cex-mark cex-mark-ok">'
+                '<svg viewBox="0 0 24 24"><polyline points="5,12 10,17 19,7"/></svg>'
+                '</span>'
+            )
+        else:
+            mark_svg = (
+                '<span class="cex-mark cex-mark-fail">'
+                '<svg viewBox="0 0 24 24">'
+                '<line x1="6" y1="6" x2="18" y2="18"/>'
+                '<line x1="18" y1="6" x2="6" y2="18"/>'
+                '</svg>'
+                '</span>'
+            )
         st.markdown(
             f"<div style='border-left:4px solid {color}; padding:10px 14px; "
             f"margin:8px 0; background:{color}11; border-radius:6px;'>"
             f"<b>Q{qi+1}</b> &nbsp; 你的选择:<b>{ua or '(未选)'}</b> "
-            f"&nbsp;·&nbsp; 正确答案:<b>{ca or '?'}</b> &nbsp;{mark}"
+            f"&nbsp;·&nbsp; 正确答案:<b>{ca or '?'}</b> {mark_svg}"
             f"</div>",
             unsafe_allow_html=True,
         )

@@ -643,6 +643,104 @@ code, pre, .stCode {{
     color: var(--paper) !important;
     border-color: var(--ink) !important;
 }}
+
+/* === SVG MARKS (self-test feedback) ===
+   Replaces ✅/❌ emoji with a one-stroke SVG check / cross that
+   animates in via stroke-dashoffset. Wrapped in a <span class="cex-mark">
+   inline-block so the existing `st.markdown` feedback divs at L2622-2629
+   pick up the animation automatically once we swap the emoji text. */
+.cex-mark {{
+    display: inline-block;
+    width: 1.35em;
+    height: 1.35em;
+    vertical-align: -0.25em;
+    margin-left: 6px;
+    transform: scale(0.6);
+    opacity: 0;
+    animation: cex-mark-pop .42s cubic-bezier(.2, .9, .3, 1.15) forwards;
+}}
+.cex-mark svg {{
+    width: 100%;
+    height: 100%;
+    fill: none;
+    stroke-width: 3.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 24;
+    stroke-dashoffset: 24;
+    animation: cex-mark-draw .55s cubic-bezier(.65, 0, .35, 1) forwards;
+}}
+.cex-mark-ok   svg {{ stroke: #10B981; }}
+.cex-mark-fail svg {{
+    stroke: #EF4444;
+    /* small left-right shake after the cross draws */
+    animation: cex-mark-draw .35s cubic-bezier(.65, 0, .35, 1) forwards,
+               cex-mark-shake .42s .35s ease-in-out 2;
+}}
+@keyframes cex-mark-pop {{
+    to {{ transform: scale(1); opacity: 1; }}
+}}
+@keyframes cex-mark-draw {{
+    to {{ stroke-dashoffset: 0; }}
+}}
+@keyframes cex-mark-shake {{
+    0%, 100% {{ transform: translateX(0); }}
+    20%      {{ transform: translateX(-2px); }}
+    40%      {{ transform: translateX(2px); }}
+    60%      {{ transform: translateX(-1.5px); }}
+    80%      {{ transform: translateX(1.5px); }}
+}}
+
+/* === STAR GLOSS (vocab cards) ===
+   The star span already exists in _render_vocab_card_html — these rules
+   just upgrade its look. Solid gold ★ gets a warm glow + tiny inner
+   highlight; hollow ☆ stays a flat ink-soft line. No SVG nodes, so no
+   React-NotFound risk and zero payload increase across 7000 words. */
+.star-solid {{
+    color: #F59E0B;
+    /* Note: text-shadow does NOT support `inset` (that's box-shadow only).
+       Streamlit's CSS parser silently drops the whole `text-shadow`
+       declaration if any value is invalid, so we use plain offset+blur
+       shadows only. A subtle golden halo + a soft cream highlight. */
+    text-shadow:
+        0 0 6px rgba(245, 158, 11, 0.45),
+        0 1px 0 rgba(255, 255, 255, 0.55),
+        0 -1px 0 rgba(146, 64, 14, 0.45);
+    letter-spacing: -0.02em;
+}}
+.star-hollow {{
+    color: #D1D5DB;
+    text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
+}}
+
+/* === AI SPINNER ===
+   Replaces Streamlit's default spinner with a cool half-arc that rotates
+   forever while the AI generates content. We hook the spinner via
+   [data-testid="stSpinner"] which Streamlit sets on its spinner container
+   when active. */
+[data-testid="stSpinner"] > div {{ /* hide the default emoji ring */
+    color: transparent !important;
+}}
+[data-testid="stSpinner"]::before {{
+    content: "";
+    display: inline-block;
+    width: 1.05em;
+    height: 1.05em;
+    margin-right: 0.55em;
+    vertical-align: -0.15em;
+    border: 2.5px solid rgba(26, 26, 26, 0.12);
+    border-top-color: #B73239;
+    border-right-color: #B73239;
+    border-radius: 50%;
+    animation: cex-spin 0.85s linear infinite;
+}}
+[data-testid="stSpinner"] * {{
+    font-style: italic;
+    color: var(--ink-soft) !important;
+}}
+@keyframes cex-spin {{
+    to {{ transform: rotate(360deg); }}
+}}
 </style>
 """
 
