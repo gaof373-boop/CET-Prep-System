@@ -2301,82 +2301,106 @@ def _render_translation_report(r: dict, ref: str = "") -> None:
 
 
 # ===========================================================================
-# Sidebar
+# Navigation — top pills bar (replaces the old sidebar)
 # ===========================================================================
-def _render_sidebar() -> str:
-    """Editorial masthead + chapter index in the sidebar.
+NAV_ITEMS = [
+    ("📊", "学霸看板"),
+    ("📝", "词汇板块"),
+    ("🎲", "背单词自测"),
+    ("📰", "阅读训练"),
+    ("🎧", "听力训练"),
+    ("🤖", "AI 批改官"),
+    ("🟥", "错题本"),
+]
 
-    The masthead (CET 智胜 / Issue / colophon-style date) is rendered
-    via plain ``st.markdown(unsafe_allow_html=True)`` with NO <svg>
-    inside it. Radio buttons are the same as before but pre-styled
-    to look like a chapter index via the master CSS injected once at
-    app start.
+
+def _render_top_nav() -> str:
+    """Drop-in replacement for _render_sidebar().
+
+    Uses streamlit 1.58's ``st.pills`` to render a horizontal glass-
+    morphic chapter bar. The user sees all 7 sections as labeled chips
+    across the top of the page. Nothing touches st.sidebar — we depend
+    on zero sidebar chrome.
+
+    Returns
+    -------
+    str
+        The selected page label, one of ``NAV_ITEMS[0..6]``.
     """
-    with st.sidebar:
+    # Page-level masthead — keeps the editorial identity when sidebar is gone.
+    with st.container():
         st.markdown(web_ui.render_sidebar_masthead(), unsafe_allow_html=True)
 
-        # ----- Exam level selector -----
-        st.markdown(
-            '<div class="nav-chapter">Examination Level</div>',
-            unsafe_allow_html=True,
+    # CET-4 / CET-6 level toggle — small inline pill
+    level_options = ["CET-4", "CET-6"]
+    current_level = st.session_state.get("level", "CET-4")
+    default_index = 0 if current_level == "CET-4" else 1
+    col_a, col_b, col_c = st.columns([0.18, 0.18, 0.64], gap="small")
+    with col_a:
+        new_level = st.selectbox(
+            "级别",
+            level_options,
+            index=default_index,
+            label_visibility="hidden",
+            key="topnav_level",
         )
-        new_level = st.radio(
-            "Level",
-            ["CET-4", "CET-6"],
-            index=0 if st.session_state.level == "CET-4" else 1,
-            label_visibility="collapsed",
-            key="sidebar_level",
-        )
-        if new_level != st.session_state.level:
+        if new_level != current_level:
             st.session_state.level = new_level
             st.rerun()
 
-        # ----- Chapter index -----
-        st.markdown(
-            '<div class="nav-chapter">Chapter Index · 章节</div>',
-            unsafe_allow_html=True,
-        )
-        page = st.radio(
-            "导航",
-            ["📊 学霸看板",
-             "📝 词汇板块",
-             "🎲 背单词自测",
-             "📰 阅读训练",
-             "🎧 听力训练",
-             "🤖 AI 批改官",
-             "🟥 错题本"],
-            label_visibility="collapsed",
-            key="sidebar_page",
-        )
+    # Glass-morphic chapter pills (sticky on desktop, always-first on mobile).
+    labels = [f"{emoji} {label}" for emoji, label in NAV_ITEMS]
+    # Determine the default index from the current sidebar_page session state
+    # (so the setting persists across reruns just like the old radio).
+    current_page = st.session_state.get("sidebar_page", "📊 学霸看板")
+    default_page = 0
+    for i, label in enumerate(labels):
+        if current_page.startswith(label[:2]) or current_page == label:
+            default_page = i
+            break
 
-        # ----- API config (kept simple, no SVG) -----
-        st.markdown(
-            '<div class="nav-chapter">Configuration</div>',
-            unsafe_allow_html=True,
-        )
-        with st.expander("🔑 API 配置"):
-            # The values are read from st.secrets (or fallback sources)
-            # by AIService on boot. We display them here for visibility
-            # only — saving is a no-op in cloud deploys because the
-            # authoritative copy lives in the Streamlit Cloud Secrets
-            # UI. For local dev, AIService.save_config() writes
-            # config.json, but only when that file is writable.
-            if ai.has_api():
-                st.caption("✓ 当前 API 已配置")
-                st.caption(
-                    f"Base URL: `{ai.config.get('base_url','')}`  ·  "
-                    f"Model: `{ai.config.get('model','')}`"
-                )
-                key_len = len(ai.config.get("api_key", "") or "")
-                if key_len:
-                    st.caption(f"API Key: `sk-…` (长 {key_len}, 已被保护)")
-            else:
-                st.warning(
-                    "⚠️ 未配置 API。运行本地时把 `api_key` 填进项目根目录 "
-                    "`config.json`;部署到 Streamlit Cloud 后,在 Cloud 后台 "
-                    "Settings → Secrets 里填写 `OPENAI_API_KEY` / "
-                    "`OPENAI_BASE_URL` / `OPENAI_MODEL`。"
-                )
+    st.markdown(web_ui.GLASS_PILLS_CSS, unsafe_allow_html=True)
+    selection = st.pills(
+        "章节 · Chapter",
+        labels,
+        default=labels[default_page],
+        key="topnav_pills",
+        label_visibility="hidden",
+    )
+    # Persist selection back into session state in the format the rest of
+    # the code expects ("📊 学霸看板" etc.).
+    if selection is not None:
+        new_page = f"{selection[0]} {selection[2:]}"  # strip emoji double-count
+        # Simpler: pick the human-readable label from NAV_ITEMS
+        sel_idx = labels.index(selection)
+        new_page = f"{NAV_ITEMS[sel_idx][0]} {NAV_ITEMS[sel_idx][1]}"
+        if new_page != st.session_state.get("sidebar_page"):
+            st.session_state.sidebar_page = new_page
+            st.rerun()
+        return new_page
+    else:
+        return st.session_state.get("sidebar_page", "📊 学霸看板")
+
+
+def _render_settings_expander():
+    """Small collapsible API-config block placed at the top of the page."""
+    with st.expander("⚙️ 设置", expanded=False):
+        if ai.has_api():
+            st.caption("✓ 当前 API 已配置")
+            st.caption(
+                f"Base URL: `{ai.config.get('base_url','')}`  ·  "
+                f"Model: `{ai.config.get('model','')}`"
+            )
+            key_len = len(ai.config.get("api_key", "") or "")
+            if key_len:
+                st.caption(f"API Key: `sk-…` (长 {key_len}, 已被保护)")
+        else:
+            st.warning(
+                "⚠️ 未配置 API。运行本地时把 `api_key` 填进项目根目录 "
+                "`config.json`;部署到 Streamlit Cloud 后,在 Cloud 后台 "
+                "Settings → Secrets 里填写 `OPENAI_API_KEY` / "
+                "`OPENAI_BASE_URL` / `OPENAI_MODEL`。"
+            )
             # Local-dev only: still allow editing if config.json exists.
             # In cloud deploys the file is read-only and the save
             # button is hidden.
@@ -3112,7 +3136,7 @@ def main() -> None:
     # <style> blocks across reruns, so the call is idempotent.
     web_ui.inject_design_css()
 
-    page = _render_sidebar()
+    page = _render_top_nav()
 
     if page.startswith("📊"):
         _render_dashboard()

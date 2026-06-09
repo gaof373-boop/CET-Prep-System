@@ -609,21 +609,95 @@ code, pre, .stCode {{
 #MainMenu, footer {{ visibility: hidden; }}
 [data-testid="stToolbar"] {{ display: none; }}
 
-/* === ANIMATION === */
-@keyframes ink-stamp {{
-    0%   {{ transform: scale(0.92) rotate(-1deg); opacity: 0;   }}
-    50%  {{ transform: scale(1.04) rotate(0.5deg); opacity: 1; }}
-    100% {{ transform: scale(1)    rotate(0);     opacity: 1;   }}
+/* === TOP PILLS NAV === */
+/* Glass-morphic pill bar that sits at the top of every page, no sidebar.
+   Sticky on desktop so chapters are always visible. On mobile it stays
+   at the top of the first scroll. */
+[data-testid="stPills"] {{
+    z-index: 1001 !important;
 }}
-.ink-stamp {{
-    animation: ink-stamp .5s cubic-bezier(.2, .9, .3, 1.1);
+[data-testid="stPills"] button {{
+    font-family: {FONT_BODY} !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    border-radius: 0 !important;
+    border: 1px solid var(--rule) !important;
+    background: rgba(255,255,255,0.72) !important;
+    backdrop-filter: blur(14px) !important;
+    -webkit-backdrop-filter: blur(14px) !important;
+    color: var(--ink) !important;
+    padding: 8px 16px !important;
+    margin: 2px 3px !important;
+    transition: all .22s ease !important;
+    letter-spacing: 0.01em !important;
 }}
+[data-testid="stPills"] button:hover {{
+    background: var(--paper-warm) !important;
+    border-color: var(--ink) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(15,23,42,0.10) !important;
+}}
+[data-testid="stPills"] button[aria-selected="true"],
+[data-testid="stPills"] button[data-selected="true"] {{
+    background: var(--ink) !important;
+    color: var(--paper) !important;
+    border-color: var(--ink) !important;
+}}
+</style>
+"""
 
-/* === Mobile / narrow viewport === */
+# Shorter CSS block used by _render_top_nav() — just the pill-specific styles.
+# inject_design_css() handles the full design system. This is a small extra
+# chunk we inject right before the pills so the glass-morphism, sticky, and
+# high-z-index properties apply even if the main stylesheet hasn't been
+# injected yet (rare edge case on first paint).
+GLASS_PILLS_CSS = f"""
+<style>
+[data-testid="stPills"] {{
+    z-index: 1001 !important;
+    position: sticky !important;
+    top: 0 !important;
+    background: rgba(250,247,242,0.88) !important;
+    backdrop-filter: blur(18px) !important;
+    -webkit-backdrop-filter: blur(18px) !important;
+    padding: 6px 8px !important;
+    margin: 0 !important;
+    border-bottom: 1px solid #D8CFB8 !important;
+}}
+[data-testid="stPills"] button {{
+    font-family: {FONT_BODY} !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    border-radius: 0 !important;
+    border: 1px solid var(--rule) !important;
+    background: rgba(255,255,255,0.65) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    color: var(--ink) !important;
+    padding: 7px 14px !important;
+    margin: 2px 3px !important;
+    transition: all .22s ease !important;
+    letter-spacing: 0.01em !important;
+    cursor: pointer !important;
+}}
+[data-testid="stPills"] button:hover {{
+    background: var(--paper-warm) !important;
+    border-color: var(--ink) !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 10px rgba(15,23,42,0.10) !important;
+}}
+[data-testid="stPills"] button[aria-selected="true"],
+[data-testid="stPills"] button[data-selected="true"] {{
+    background: var(--ink) !important;
+    color: var(--paper) !important;
+    border-color: var(--ink) !important;
+}}
 @media (max-width: 768px) {{
-    .editorial-hero h1 {{ font-size: 38px; }}
-    .stat-cell .stat-value {{ font-size: 40px; }}
-    .paper-card {{ padding: 18px 18px; }}
+    [data-testid="stPills"] button {{
+        font-size: 11px !important;
+        padding: 6px 10px !important;
+        margin: 1px 2px !important;
+    }}
 }}
 </style>
 """
