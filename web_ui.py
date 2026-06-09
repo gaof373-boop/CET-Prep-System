@@ -84,33 +84,21 @@ section.main,
 }}
 
 /* === HEADER & SIDEBAR === */
-/* NB: we deliberately do NOT restyle header[data-testid="stHeader"]
-   at all. The earlier "border-bottom: 1px solid" rule created a
-   sticky 1px line that followed the user as they scrolled — because
-   the Streamlit header is position:fixed at the top. Since our
-   editorial style is a clean page (no top toolbar), we just let the
-   header stay transparent & borderless via the global selector below. */
+/* NB: we deliberately do NOT zero-out the header height. The earlier
+   "height: 0 !important" rule killed the sidebar collapse button
+   (which lives inside the header toolbar) and made the page feel
+   like a strange "no top bar" — plus the user couldn't open the
+   sidebar from the main pane. We just want the header chrome to
+   be visually invisible WHILE keeping the clickable control on
+   screen. */
 header[data-testid="stHeader"],
-[data-testid="stHeader"] > div,
-[data-testid="stHeader"] [data-testid="stToolbar"] {{
+[data-testid="stHeader"] > div {{
     background: transparent !important;
     border-bottom: 0 !important;
     box-shadow: none !important;
-    height: 0 !important;
+    /* Keep height intact; just visually blank. */
+    height: auto !important;
     min-height: 0 !important;
-    overflow: hidden !important;
-}}
-/* Hide the entire Streamlit chrome (top toolbar + footer + status
-   widget) — the sidebar is opened from our own editorial masthead
-   inside the panel itself, and the right-side toolbar with the
-   deploy menu is not needed for a study app. We MUST keep the
-   sidebar collapse / expand control visible — the user needs to be
-   able to open and close the sidebar. */
-#MainMenu, footer,
-[data-testid="stToolbar"],
-[data-testid="stStatusWidget"] {{
-    visibility: hidden !important;
-    display: none !important;
 }}
 /* Belt-and-suspenders: even if some other component is being
    mistargeted by a global "display:none", the collapse button is
@@ -125,11 +113,15 @@ button[data-testid="baseButton-headerNoPadding"] {{
     background: var(--paper-warm) !important;
     border: 1px solid var(--rule) !important;
     box-shadow: 0 2px 6px rgba(15, 23, 42, 0.10) !important;
+    border-radius: 0 !important;
+    padding: 6px 10px !important;
+    margin: 8px 0 0 8px !important;
 }}
-/* Belt-and-suspenders #2: streamlit sometimes wraps the collapse
-   arrow in a "stDecoration" container. Don't hide that one — the
-   arrow lives inside it. */
-[data-testid="stDecoration"]:not(:has([data-testid="stSidebarCollapsedControl"])) {{
+/* Hide the rest of the Streamlit chrome — status widget, footer,
+   and the right-side deploy toolbar (not needed for study). */
+#MainMenu, footer,
+[data-testid="stToolbar"],
+[data-testid="stStatusWidget"] {{
     display: none !important;
 }}
 
