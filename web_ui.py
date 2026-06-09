@@ -84,9 +84,53 @@ section.main,
 }}
 
 /* === HEADER & SIDEBAR === */
-header[data-testid="stHeader"] {{
+/* NB: we deliberately do NOT restyle header[data-testid="stHeader"]
+   at all. The earlier "border-bottom: 1px solid" rule created a
+   sticky 1px line that followed the user as they scrolled — because
+   the Streamlit header is position:fixed at the top. Since our
+   editorial style is a clean page (no top toolbar), we just let the
+   header stay transparent & borderless via the global selector below. */
+header[data-testid="stHeader"],
+[data-testid="stHeader"] > div,
+[data-testid="stHeader"] [data-testid="stToolbar"] {{
     background: transparent !important;
-    border-bottom: 1px solid var(--rule);
+    border-bottom: 0 !important;
+    box-shadow: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+}}
+/* Hide the entire Streamlit chrome (top toolbar + footer + status
+   widget) — the sidebar is opened from our own editorial masthead
+   inside the panel itself, and the right-side toolbar with the
+   deploy menu is not needed for a study app. We MUST keep the
+   sidebar collapse / expand control visible — the user needs to be
+   able to open and close the sidebar. */
+#MainMenu, footer,
+[data-testid="stToolbar"],
+[data-testid="stStatusWidget"] {{
+    visibility: hidden !important;
+    display: none !important;
+}}
+/* Belt-and-suspenders: even if some other component is being
+   mistargeted by a global "display:none", the collapse button is
+   explicitly restored here. */
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="baseButton-headerNoPadding"],
+button[data-testid="baseButton-headerNoPadding"] {{
+    display: inline-flex !important;
+    visibility: visible !important;
+    z-index: 999999 !important;
+    color: var(--ink) !important;
+    background: var(--paper-warm) !important;
+    border: 1px solid var(--rule) !important;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.10) !important;
+}}
+/* Belt-and-suspenders #2: streamlit sometimes wraps the collapse
+   arrow in a "stDecoration" container. Don't hide that one — the
+   arrow lives inside it. */
+[data-testid="stDecoration"]:not(:has([data-testid="stSidebarCollapsedControl"])) {{
+    display: none !important;
 }}
 
 /* Sidebar becomes a thick inked rule instead of a flat gray panel */
