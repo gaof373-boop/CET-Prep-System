@@ -797,6 +797,71 @@ GLASS_PILLS_CSS = f"""
         margin: 1px 2px !important;
     }}
 }}
+
+/* === PRINT STYLESHEET (used by AI 批改报告 → 打印 PDF 流程) ===
+   Triggered when the user clicks the "🖨️ 打印为 PDF" button on the
+   AI grader report (or Cmd+P / browser menu). Hides interactive
+   chrome, expands hidden report sections, and forces a print-friendly
+   palette so the saved PDF actually looks like a polished report. */
+@media print {{
+    /* Hide the navigation pills, sidebar toggle, footer, footer-of-page
+       captions, and any button the user might click — none of it makes
+       sense on paper. */
+    [data-testid="stSidebar"],
+    [data-testid="stSidebarCollapsedControl"],
+    [data-testid="stExpandSidebarButton"],
+    [data-testid="stToolbar"],
+    [data-testid="stToolbarActions"],
+    [data-testid="stStatusWidget"],
+    #MainMenu,
+    footer,
+    [data-testid="stPills"],
+    [data-testid="stBaseButton-headerNoPadding"],
+    .stDownloadButton,
+    [data-testid="stSidebarHeader"] {{
+        display: none !important;
+    }}
+
+    /* Expand any expander (the example-sentence panel) so its content
+       prints in full rather than being collapsed behind a click. */
+    [data-testid="stExpander"] details {{
+        display: block !important;
+    }}
+    [data-testid="stExpander"] details > summary {{
+        display: block !important;
+    }}
+    [data-testid="stExpander"] details > div {{
+        display: block !important;
+    }}
+
+    /* Force a white background and dark text so dark-themed browser
+       preview doesn't make the printout unreadable. */
+    html, body, [data-testid="stAppViewContainer"], .stApp, section.main {{
+        background: #FFFFFF !important;
+        color: #1A1A1A !important;
+    }}
+
+    /* Each .paper-card / AI report section gets a forced page-break
+       break-inside so they don't straddle a printed page boundary. */
+    .paper-card,
+    [class*="editorial"] {{
+        break-inside: avoid;
+        page-break-inside: avoid;
+    }}
+    /* Use slightly larger fonts for the printed report. */
+    section.main p, section.main div, section.main span, section.main li {{
+        font-size: 12pt !important;
+        color: #1A1A1A !important;
+    }}
+    section.main h1, section.main h2, section.main h3 {{
+        color: #1A1A1A !important;
+        page-break-after: avoid;
+    }}
+    /* Don't break the big score card across pages. */
+    h1, h2, h3, h4 {{
+        page-break-after: avoid;
+    }}
+}}
 </style>
 """
 

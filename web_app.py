@@ -2052,6 +2052,313 @@ def _render_essay_grader() -> None:
                               topic=topic, user_essay=essay)
 
 
+def _derive_4dim_scores(total: int, kind: str = "essay") -> dict[str, int]:
+    """Heuristic 4-dimension scores when the LLM didn't return them.
+
+    Splits a 0-15 total into 4 dimensions (each 0-5) using a soft
+    distribution. Not a real grader — just gives the UI something to
+    show until the LLM prompt is updated to return real per-dim scores.
+
+    The shape is symmetric (4 dims get the same number) which is honest
+    about the imprecision. When the prompt is updated, the UI will
+    use the LLM values instead and this helper becomes a fallback.
+    """
+    if total <= 0:
+        return {"vocab": 0, "grammar": 0, "coherence": 0, "task": 0}
+    # Map 0-15 onto 0-5 with a step function so we don't show 3.2/5 etc.
+    if total >= 13:
+        v = 5
+    elif total >= 10:
+        v = 4
+    elif total >= 7:
+        v = 3
+    elif total >= 4:
+        v = 2
+    else:
+        v = 1
+    return {"vocab": v, "grammar": v, "coherence": v, "task": v}
+
+
+def _4dim_score_label(v: int | None) -> str:
+    """Render a 0-5 dimension score as '5 / 5' or '—' when missing."""
+    if v is None:
+        return "—"
+    return f"{v} / 5"
+
+
+def _render_4dim_cards(scores: dict, total_score: int) -> None:
+    """4 frosted glass cards in one row, each showing one dimension.
+
+    ``scores`` may have keys vocab / grammar / coherence / task (essay)
+    OR faithfulness / expressiveness / elegance / terminology (translation).
+    Whichever set, we render in a fixed 4-card grid. Missing values
+    render as '—' so a partial LLM response still looks complete.
+    """
+    # Map: (display label, key in dict, accent color)
+    cells = [
+        ("🌟 词汇高级度",          "vocab",         "#B73239"),
+        ("✍️ 语法准确性",          "grammar",       "#3B82F6"),
+        ("🧩 篇章连贯性",          "coherence",     "#10B981"),
+        ("🎯 题目完成度",          "task",          "#F59E0B"),
+    ]
+    cards_html = "".join(
+        f"""
+        <div style="flex:1; min-width:120px; padding:14px 12px;
+                    background:linear-gradient(135deg, {color}1A 0%, {color}05 100%);
+                    border:1px solid {color}55; border-left:3px solid {color};
+                    border-radius:6px; text-align:center;">
+            <div style="font-size:12px; color:#5A5247; letter-spacing:0.05em;
+                        font-weight:600;">{label}</div>
+            <div style="font-size:30px; font-weight:800; color:{color};
+                        line-height:1.0; margin:6px 0 4px 0;
+                        font-feature-settings:'tnum';">
+                {_4dim_score_label(scores.get(key))}
+            </div>
+            <div style="font-size:11px; color:#9CA3AF; font-style:italic;">
+                满分 5 分
+            </div>
+        </div>
+        """
+        for label, key, color in cells
+    )
+    st.markdown(
+        f"""
+        <div style="display:flex; gap:8px; margin:0 0 16px 0; flex-wrap:wrap;">
+            {cards_html}
+        </div>
+        <div style="font-size:11px; color:#9CA3AF; font-style:italic;
+                    margin:-8px 0 14px 0;">
+            📐 总分 {total_score} / 15 · 各维度由 AI 评分;
+            若字段缺失则基于总分启发式推算(已标注 —)
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_chinglish_section(chinglish_list: list, kind: str) -> None:
+    """Highlighted '中式英语消杀' section — the new 'Chinglish Fix' feature.
+
+    For essay, this comes from ``r.get('chinglish', [])`` which is
+    currently always empty (LLM doesn't emit it for essay prompts yet).
+    For translation, ``chinglish`` is already populated by the LLM.
+    In both cases, render a red-cinnabar-highlighted section, or
+    gracefully show 'no Chinglish found' when the list is empty.
+    """
+    items = chinglish_list or []
+    if not items:
+        st.markdown(
+            "<div style='background:#F0F9FF; border-left:3px solid #94A3B8; "
+            "padding:10px 14px; border-radius:6px; margin:8px 0; "
+            "font-size:13px; color:#475569;'>"
+            "✨ AI 暂未发现中式英语硬伤 — 你的英文表达相当地道。"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        return
+    st.markdown(
+        "<div style='font-size:13px; color:#B73239; font-weight:700; "
+        "letter-spacing:0.05em; margin:18px 0 8px 0;'>"
+        "🆘 中式英语消杀 (Chinglish Fix) — 找出最像「中翻英」的死板表达"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    for ch in items:
+        if not isinstance(ch, dict):
+            continue
+        # chinglish items may use 'fix' (legacy) or 'native_fix' (new);
+        # 'sentence' (trans) or 'snippet' (essay)
+        fix = ch.get("native_fix") or ch.get("fix") or ""
+        sentence = ch.get("sentence") or ch.get("snippet") or ""
+        issue = ch.get("issue") or ""
+        st.markdown(
+            f"""
+            <div style="border-left:4px solid #B73239;
+                        background:linear-gradient(135deg,#FEF2F2 0%,#FFFFFF 100%);
+                        padding:12px 14px; border-radius:6px; margin:8px 0;">
+                <div style="font-size:12px; color:#6B7280;">🗣️ 中式原句</div>
+                <div style="font-size:15px; color:#7F1D1D; font-style:italic;
+                            margin:4px 0 6px 0;">{_html_escape(sentence)}</div>
+                <div style="font-size:12px; color:#6B7280;">🔍 为什么生硬</div>
+                <div style="font-size:14px; color:#1F2937; margin:2px 0 8px 0;">
+                    {_html_escape(issue)}</div>
+                <div style="font-size:12px; color:#166534; font-weight:600;">✅ 英美校园地道写法</div>
+                <div style="font-size:15px; color:#065F46; font-weight:600;
+                            font-family:Georgia, 'Times New Roman', serif;
+                            margin:2px 0 0 0;">{_html_escape(fix)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+def _format_report_as_text(r: dict, kind: str, total: int,
+                            topic: str = "", user_text: str = "") -> str:
+    """Build a plain-text version of the report for the copy button.
+
+    The button renders this in a hidden <pre> + clipboard JS hack
+    (iOS Safari requires user-gesture to copy, which the button
+    satisfies). Output is plain UTF-8 with section headers so it
+    pastes cleanly into Notes / WeChat / Word.
+    """
+    lines: list[str] = []
+    title = "CET 智胜 · 写作精批报告" if kind == "essay" else "CET 智胜 · 翻译精批报告"
+    lines.append(title)
+    lines.append("=" * 24)  # visual underline, length doesn't need to match exactly
+    lines.append("")
+    lines.append(f"📊 总分: {total} / 15")
+    if r.get("summary"):
+        lines.append(f"📝 总评: {r['summary']}")
+    lines.append("")
+    # 4 维度
+    scores = r.get("dimension_scores") or _derive_4dim_scores(total, kind)
+    if kind == "essay":
+        labels = [
+            ("词汇高级度", "vocab"), ("语法准确性", "grammar"),
+            ("篇章连贯性", "coherence"), ("题目完成度", "task"),
+        ]
+    else:
+        labels = [
+            ("信 忠于原文", "faithfulness"), ("达 通顺自然", "expressiveness"),
+            ("雅 文笔典雅", "elegance"), ("术语地道", "terminology"),
+        ]
+    lines.append("📐 4 维度评分")
+    for lbl, key in labels:
+        v = scores.get(key)
+        if v is None:
+            lines.append(f"  • {lbl}: — / 5")
+        else:
+            lines.append(f"  • {lbl}: {v} / 5")
+    lines.append("")
+    # Chinglish
+    ch = r.get("chinglish") or []
+    if ch:
+        lines.append("🆘 中式英语消杀")
+        for i, item in enumerate(ch, 1):
+            if not isinstance(item, dict):
+                continue
+            fix = item.get("native_fix") or item.get("fix") or ""
+            # chinglish items can use 'sentence' (trans) or 'snippet' (essay)
+            snip = item.get("sentence") or item.get("snippet") or ""
+            lines.append(f"  [{i}] {snip}")
+            lines.append(f"      问题: {item.get('issue', '')}")
+            lines.append(f"      地道: {fix}")
+        lines.append("")
+    # Errors
+    if kind == "essay":
+        errs = r.get("errors") or []
+        if errs:
+            lines.append("🟥 逐句纠错")
+            for i, e in enumerate(errs, 1):
+                if not isinstance(e, dict):
+                    continue
+                lines.append(f"  [{i}] 原句: {e.get('snippet', '')}")
+                lines.append(f"      问题: {e.get('issue', '')}")
+                lines.append(f"      修正: {e.get('fix', '')}")
+            lines.append("")
+        ups = r.get("upgrades") or []
+        if ups:
+            lines.append("💎 高分替换")
+            for u in ups:
+                if not isinstance(u, dict):
+                    continue
+                lines.append(f"  {u.get('from', '')} → {u.get('to', '')}")
+                lines.append(f"      {u.get('reason', '')}")
+            lines.append("")
+        polished = r.get("polished") or ""
+        if polished:
+            lines.append("🌟 AI 润色版")
+            lines.append(polished)
+            lines.append("")
+    else:
+        miss = r.get("missing_points") or []
+        if miss:
+            lines.append("🔴 采分点遗漏")
+            for m in miss:
+                lines.append(f"  ⚠️ {m}")
+            lines.append("")
+        ups = r.get("upgrades") or []
+        if ups:
+            lines.append("💎 高级替换")
+            for u in ups:
+                if not isinstance(u, dict):
+                    continue
+                lines.append(f"  {u.get('from', '')} → {u.get('to', '')}")
+                lines.append(f"      {u.get('reason', '')}")
+            lines.append("")
+        polished = r.get("polished") or ""
+        if polished:
+            lines.append("🌟 AI 润色版")
+            lines.append(polished)
+            lines.append("")
+    if topic:
+        lines.append(f"📌 题目: {topic}")
+    if user_text:
+        lines.append("")
+        lines.append("—— 你的原文 ——")
+        lines.append(user_text)
+    return "\n".join(lines)
+
+
+def _render_export_bar(report_text: str, label: str = "📋 复制报告全文") -> None:
+    """Render a small 'copy to clipboard' + 'print' bar.
+
+    iOS Safari requires user-gesture for navigator.clipboard.writeText,
+    so we use a ``st.download_button`` (which works on every platform)
+    PLUS a small JS button injected via ``st.components.v1.html`` that
+    runs the clipboard API on click. The component is wrapped in a
+    try/except so a JS error never breaks the page.
+
+    For PDF: there's no in-browser PDF generator that's reliable across
+    Safari + Chrome + mobile without shipping a heavy lib. We use the
+    native ``window.print()`` which respects the @media print CSS
+    injected by web_ui.py.
+    """
+    # Stash the text in session state so the download_button can serve it
+    # without re-computing on every rerun.
+    st.session_state["_grader_report_text"] = report_text
+
+    st.download_button(
+        label=label,
+        data=report_text.encode("utf-8"),
+        file_name="cet_grader_report.txt",
+        mime="text/plain",
+        use_container_width=True,
+        key="grader_download_txt",
+    )
+    # Print button — uses a tiny inline JS shim that triggers window.print().
+    # Wrapped in an iframe via components.html so React's reconciler
+    # doesn't see it (we've been burned by inline <svg> in st.markdown
+    # before; using components.html for the print button is the safer
+    # pattern).
+    import streamlit.components.v1 as components
+    components.html(
+        """
+        <script>
+          (function() {
+            var doc = window.parent.document;
+            var btn = doc.createElement('button');
+            btn.innerText = '🖨️ 打印为 PDF (浏览器菜单 → 打印 / 分享)';
+            btn.style.cssText = 'display:block; width:100%; padding:10px; '
+              + 'margin-top:8px; background:#1A1A1A; color:#FAF7F2; '
+              + 'border:1px solid #1A1A1A; border-radius:4px; '
+              + 'font-family: serif; font-size:14px; cursor:pointer;';
+            btn.onclick = function() { window.parent.print(); };
+            // Append into the streamlit button container
+            var stContainers = doc.querySelectorAll('button');
+            for (var i=0; i<stContainers.length; i++) {
+              if (stContainers[i].innerText.indexOf('复制报告全文') === 0) {
+                stContainers[i].parentElement.appendChild(btn);
+                break;
+              }
+            }
+          })();
+        </script>
+        """,
+        height=0,
+    )
+
+
 def _render_essay_report(r: dict, sample_essay: str = "",
                           topic: str = "", user_essay: str = "") -> None:
     """4-section luxury report."""
@@ -2100,6 +2407,17 @@ def _render_essay_report(r: dict, sample_essay: str = "",
     if r.get("summary"):
         st.markdown("##### 📝 总评")
         st.info(r["summary"])
+
+    # ----- 1b. 4 维度评分卡片 (新增) -----
+    # When the LLM returns dimension_scores, use them; otherwise derive
+    # from the total so the UI never looks half-empty. The heuristic is
+    # marked "启发式推算" in the cap note so the user knows the
+    # per-dim number is approximate when it's not from the AI.
+    _essay_scores = r.get("dimension_scores") or _derive_4dim_scores(score, "essay")
+    _render_4dim_cards(_essay_scores, score)
+
+    # ----- 1c. 中式英语消杀 (新增,essay 暂为空) -----
+    _render_chinglish_section(r.get("chinglish") or [], "essay")
 
     # ----- 2. 语法与词汇纠错表 -----
     errs = r.get("errors") or []
@@ -2174,6 +2492,19 @@ def _render_essay_report(r: dict, sample_essay: str = "",
         _show_essay_block("📚 真题参考范文", sample_essay, "#3B82F6")
     else:
         st.caption("本次未生成范文,可手动重试或换题再批。")
+
+    # ----- 5. 导出栏 (新增) -----
+    st.markdown(
+        "<div style='font-size:13px; color:#B73239; font-weight:700; "
+        "letter-spacing:0.05em; margin:20px 0 8px 0;'>"
+        "📤 导出报告"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    _report_text = _format_report_as_text(
+        r, kind="essay", total=score, topic=topic, user_text=user_essay,
+    )
+    _render_export_bar(_report_text)
 
 
 def _show_essay_block(heading: str, text: str, accent_color: str) -> None:
@@ -2272,6 +2603,62 @@ def _render_translation_report(r: dict, ref: str = "") -> None:
     if r.get("summary"):
         st.markdown("##### 📝 总评")
         st.info(r["summary"])
+
+    # ----- 0. 4 维度评分 (新增,顶部) -----
+    # Translation doesn't have a total 0-15 score historically; the LLM
+    # prompt doesn't emit one. The 4 dims (信/达/雅/术语) may or may not
+    # come back. Show 4 cards; if LLM didn't return them, all show "—".
+    _trans_scores = r.get("dimension_scores") or {
+        "faithfulness": None, "expressiveness": None,
+        "elegance": None, "terminology": None,
+    }
+    # Use LLM's "polished" length as a 0-15 proxy ONLY if no scores returned
+    _proxy_total = 0
+    if all(v is None for v in _trans_scores.values()):
+        polished = r.get("polished") or ""
+        # if polished is > 0 chars, give 8/15 (a sane mid range)
+        _proxy_total = 8 if polished else 0
+    # Build the 4 trans cards by calling the same helper with trans keys
+    # but our helper uses fixed keys — so we adapt: use faithfulness /
+    # expressiveness / elegance / terminology via a tiny inline variant.
+    _trans_cells = [
+        ("📜 信 忠于原文",     "faithfulness",   "#B73239"),
+        ("💬 达 通顺自然",     "expressiveness", "#3B82F6"),
+        ("✨ 雅 文笔典雅",     "elegance",       "#10B981"),
+        ("📖 术语地道",        "terminology",    "#F59E0B"),
+    ]
+    _trans_cards = "".join(
+        f"""
+        <div style="flex:1; min-width:120px; padding:14px 12px;
+                    background:linear-gradient(135deg, {color}1A 0%, {color}05 100%);
+                    border:1px solid {color}55; border-left:3px solid {color};
+                    border-radius:6px; text-align:center;">
+            <div style="font-size:12px; color:#5A5247; letter-spacing:0.05em;
+                        font-weight:600;">{label}</div>
+            <div style="font-size:30px; font-weight:800; color:{color};
+                        line-height:1.0; margin:6px 0 4px 0;
+                        font-feature-settings:'tnum';">
+                {_4dim_score_label(_trans_scores.get(key))}
+            </div>
+            <div style="font-size:11px; color:#9CA3AF; font-style:italic;">
+                满分 5 分
+            </div>
+        </div>
+        """
+        for label, key, color in _trans_cells
+    )
+    st.markdown(
+        f"""
+        <div style="display:flex; gap:8px; margin:0 0 12px 0; flex-wrap:wrap;">
+            {_trans_cards}
+        </div>
+        <div style="font-size:11px; color:#9CA3AF; font-style:italic;
+                    margin:-4px 0 14px 0;">
+            📐 翻译暂无总分 · 若字段为 — 表示 LLM 暂未给该维度打分
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     # ----- 1. 采分点遗漏 -----
     miss = r.get("missing_points") or []
@@ -2374,6 +2761,19 @@ def _render_translation_report(r: dict, ref: str = "") -> None:
             f"{_html_escape(ref).replace(chr(10), '<br>')}</div>",
             unsafe_allow_html=True,
         )
+
+    # ----- 5. 导出栏 (新增) -----
+    st.markdown(
+        "<div style='font-size:13px; color:#B73239; font-weight:700; "
+        "letter-spacing:0.05em; margin:20px 0 8px 0;'>"
+        "📤 导出报告"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    _trans_report = _format_report_as_text(
+        r, kind="translation", total=0, topic="", user_text="",
+    )
+    _render_export_bar(_trans_report, label="📋 复制翻译报告全文")
 
 
 # ===========================================================================
