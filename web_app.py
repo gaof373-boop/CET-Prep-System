@@ -1407,6 +1407,30 @@ def _render_quiz_tab() -> None:
             unsafe_allow_html=True,
         )
 
+    # ----- Overdue digest (the "you missed X yesterday" headline) -----
+    # Replaces the email digest (which Tencent Cloud's blocked SMTP port
+    # would have prevented anyway). The headline number is `overdue` —
+    # words whose due_date is strictly before today. Cinnabar red so it
+    # reads as "you missed something" rather than the amber "today" badge
+    # above. Only renders when overdue > 0; first-day users won't see it.
+    try:
+        _overdue_stats = dm.review_overdue_banner(level)
+    except Exception:
+        _overdue_stats = {"overdue": 0, "due_today": 0, "never_seen": 0}
+    if _overdue_stats.get("overdue", 0) > 0:
+        _n = _overdue_stats["overdue"]
+        st.markdown(
+            f"<div style='padding:10px 14px; margin:4px 0 14px 0;"
+            f"            background:linear-gradient(135deg,#FEF2F2 0%,#FEE2E2 100%);"
+            f"            border-left:4px solid #B73239; border-radius:4px;"
+            f"            font-size:13px; color:#7F1D1D;'>"
+            f"  📬 <b>你错过了 {_n} 个词</b>的复习窗口。"
+            f"  这些词 SM-2 已经安排好今天再见你 — "
+            f"  点「开始测试」就一次清完。"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
     # ----- Live session summary strip -----
     sess = st.session_state.get("quiz_session")
     if sess and st.session_state.get("quiz_active"):

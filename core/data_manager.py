@@ -640,6 +640,44 @@ class DataManager:
             ).fetchone()
         return int(row["n"])
 
+    def review_overdue_banner(self, level: str) -> dict[str, int]:
+        """Counts for the in-app overdue banner (replaces email digest).
+
+        Returns
+        -------
+        dict with:
+            due_today       — words whose due_date is today or earlier
+            overdue         — words whose due_date is strictly before today
+                              (i.e. the user missed at least one day)
+            never_seen      — words with last_seen_at IS NULL
+        ``overdue`` is the headline number — it represents what the user
+        *missed* by not opening the app yesterday (or earlier). That's
+        the number that should feel like a "you've got mail" push.
+        """
+        import datetime as _dt
+        today_iso = _dt.date.today().isoformat()
+        with self._conn() as c:
+            overdue_row = c.execute(
+                "SELECT COUNT(*) AS n FROM vocabulary "
+                "WHERE level = ? AND due_date IS NOT NULL AND due_date < ?",
+                (level, today_iso),
+            ).fetchone()
+            due_today_row = c.execute(
+                "SELECT COUNT(*) AS n FROM vocabulary "
+                "WHERE level = ? AND (last_seen_at IS NULL OR due_date IS NULL OR due_date <= ?)",
+                (level, today_iso),
+            ).fetchone()
+            never_row = c.execute(
+                "SELECT COUNT(*) AS n FROM vocabulary "
+                "WHERE level = ? AND last_seen_at IS NULL",
+                (level,),
+            ).fetchone()
+        return {
+            "overdue": int(overdue_row["n"]),
+            "due_today": int(due_today_row["n"]),
+            "never_seen": int(never_row["n"]),
+        }
+
     def bootstrap_legacy_review_state(self) -> int:
         """One-shot migration: rows where ``consec_correct >= 3`` already
         (old data, never had easiness/due_date) get a 30-day forward
