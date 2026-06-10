@@ -527,6 +527,156 @@ class DataManager:
         return dict(row) if row else None
 
     # ================================================================
+    # SM-2 spaced-repetition (added v1.7)
+    # ================================================================
+    def get_review_queue(
+        self,
+        level: str,
+        *,
+        n: int = 20,
+        new_ratio: float = 0.3,
+    ) -> list[dict[str, Any]]:
+        """Return up to ``n`` words for today's session, SM-2 ordered.
+
+        Mix: ``new_ratio`` fraction from never-seen / due-today pool, the
+        rest from overdue pool. Both pools use ``due_date <= today`` OR
+        ``last_seen_at IS NULL`` as the "due" predicate.
+
+        Returns rows with the same shape as ``list_vocabulary`` (so
+        callers can use them interchangeably). Order is randomised within
+        each pool to avoid the same word being first every day.
+
+        NB: ``review_queue_count`` returns the FULL due count (all 4857
+        words on a brand-new account). ``get_review_queue`` returns
+        only the requested ``n`` so a single quiz session stays
+        bounded. The header badge uses the count; the quiz itself uses
+        the capped queue.
+        """
+        import datetime as _dt
+        import random as _r
+        from .sm2 import is_due, bootstrap_from_consecutive
+
+        today_iso = _dt.date.today().isoformat()
+        with self._conn() as c:
+            review_rows = c.execute(
+                "SELECT * FROM vocabulary "
+                "WHERE level = ? AND (last_seen_at IS NULL OR due_date IS NULL OR due_date <= ?) "
+                "ORDER BY RANDOM() "
+                "LIMIT ?",
+                (level, today_iso, n),
+            ).fetchall()
+        if not review_rows:
+            with self._conn() as c:
+                review_rows = c.execute(
+                    "SELECT * FROM vocabulary WHERE level = ? ORDER BY RANDOM() LIMIT ?",
+                    (level, n),
+                ).fetchall()
+
+        return [dict(r) for r in review_rows]
+
+    def update_after_review(
+        self,
+        word_id: int,
+        quality: int,
+    ) -> None:
+        """Apply SM-2 update for a single word after the user reviewed it.
+
+        Writes: easiness, interval_days, due_date, last_seen_at,
+        consec_correct, mastered, wrong_count (incremented on fail).
+        """
+        import datetime as _dt
+        from .sm2 import sm2_update
+
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT easiness, interval_days, consec_correct, wrong_count "
+                "FROM vocabulary WHERE id = ?",
+                (word_id,),
+            ).fetchone()
+            if not row:
+                return
+            prev = dict(row)
+
+        result = sm2_update(
+            quality,
+            prev_ef=prev.get("easiness") or 2.5,
+            prev_interval=prev.get("interval_days") or 0,
+            prev_repetitions=prev.get("consec_correct") or 0,
+        )
+        now_iso = _dt.date.today().isoformat()
+        with self._conn() as c:
+            c.execute(
+                "UPDATE vocabulary SET "
+                "  easiness = ?, "
+                "  interval_days = ?, "
+                "  due_date = ?, "
+                "  last_seen_at = ?, "
+                "  consec_correct = ?, "
+                "  mastered = ?, "
+                "  wrong_count = ? "
+                "WHERE id = ?",
+                (
+                    result["ef"],
+                    result["interval"],
+                    result["next_due"].isoformat(),
+                    now_iso,
+                    result["repetitions"],
+                    1 if result["mastered"] else 0,
+                    (prev.get("wrong_count") or 0) + (1 if quality < 3 else 0),
+                    word_id,
+                ),
+            )
+            c.commit()
+
+    def review_queue_count(self, level: str) -> int:
+        """How many words are due today for the dashboard badge."""
+        import datetime as _dt
+        today_iso = _dt.date.today().isoformat()
+        with self._conn() as c:
+            row = c.execute(
+                "SELECT COUNT(*) AS n FROM vocabulary "
+                "WHERE level = ? AND (last_seen_at IS NULL OR due_date IS NULL OR due_date <= ?)",
+                (level, today_iso),
+            ).fetchone()
+        return int(row["n"])
+
+    def bootstrap_legacy_review_state(self) -> int:
+        """One-shot migration: rows where ``consec_correct >= 3`` already
+        (old data, never had easiness/due_date) get a 30-day forward
+        due_date so they don't pop back up immediately when users first
+        see the new review queue.
+
+        Returns the number of rows updated.
+        """
+        import datetime as _dt
+        from .sm2 import bootstrap_from_consecutive, MASTERY_REPETITIONS
+
+        now_iso = _dt.date.today().isoformat()
+        updated = 0
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT id, consec_correct FROM vocabulary "
+                "WHERE consec_correct >= ? AND (due_date IS NULL OR due_date = '')",
+                (MASTERY_REPETITIONS,),
+            ).fetchall()
+            for row in rows:
+                b = bootstrap_from_consecutive(row["consec_correct"])
+                c.execute(
+                    "UPDATE vocabulary SET "
+                    "  easiness = ?, interval_days = ?, due_date = ?, "
+                    "  last_seen_at = COALESCE(last_seen_at, ?), "
+                    "  mastered = 1 "
+                    "WHERE id = ?",
+                    (
+                        b["ef"], b["interval"], b["next_due"].isoformat(),
+                        now_iso, row["id"],
+                    ),
+                )
+                updated += 1
+            c.commit()
+        return updated
+
+    # ================================================================
     # V2.0 Dashboard + cross-module flow
     # ================================================================
     def dashboard_stats(self, level: str | None = None) -> dict[str, int]:

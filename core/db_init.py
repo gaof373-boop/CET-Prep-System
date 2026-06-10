@@ -376,6 +376,14 @@ def init_database(force: bool = False) -> None:
             ("wrong_count",      "INTEGER DEFAULT 0"),
             ("consec_correct",   "INTEGER DEFAULT 0"),
             ("last_seen_at",     "TIMESTAMP"),
+            # SM-2 spaced repetition (added in v1.7). ``easiness`` and
+            # ``interval`` are the two working variables; ``due_date`` is
+            # ``last_seen_at + interval`` computed at review time. NULL
+            # means "never reviewed" — those rows are treated as "due now"
+            # by the SM-2 selector.
+            ("easiness",         "REAL DEFAULT 2.5"),
+            ("interval_days",    "INTEGER DEFAULT 0"),
+            ("due_date",         "TIMESTAMP"),
         ]
         for col, decl in migrations:
             if col not in existing_cols:

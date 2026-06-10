@@ -293,10 +293,10 @@ def _render_dashboard() -> None:
 # Vocabulary + Quiz
 # ===========================================================================
 def _pick_quiz_word(level: str, source: str = "all") -> dict | None:
-    """Pick one random word from a filtered pool.
+    """Pick one word from a filtered pool.
 
     ``source`` values:
-      - "all"     -> dm.list_vocabulary(level, min_star=1)
+      - "all"     -> dm.get_review_queue(level)  (SM-2: due / never-seen first)
       - "mastered"-> dm.list_mastered(level)
       - "wrong"   -> dm.list_wrong_book(level)
     Returns ``None`` if the pool is empty.
@@ -307,7 +307,11 @@ def _pick_quiz_word(level: str, source: str = "all") -> dict | None:
     elif source == "wrong":
         pool = dm.list_wrong_book(level)
     else:  # "all" or any unknown value
-        pool = dm.list_vocabulary(level, min_star=1)
+        # SM-2 path: surface words whose last_seen_at is NULL or whose
+        # due_date has passed. Falls back to "all" if the queue is empty
+        # (handled inside the DM). This is the user-facing difference
+        # between v1.6 (random) and v1.7 (spaced repetition).
+        pool = dm.get_review_queue(level, n=200)
     if not pool:
         return None
     return _r.choice(pool)
@@ -1386,6 +1390,23 @@ def _render_quiz_tab() -> None:
     level = st.session_state.level.replace("-", "")
     st.markdown(f"### 🎲 背单词自测 · {level}")
 
+    # ----- SM-2 review badge (always visible, even before session starts) -----
+    # Shows the user how many words are due today. Cheap query, refreshes
+    # every rerun. Hidden when the count is 0 to keep the UI quiet.
+    try:
+        _due_today = dm.review_queue_count(level)
+    except Exception:
+        _due_today = 0
+    if _due_today > 0:
+        st.markdown(
+            f"<div style='display:inline-block; padding:4px 12px; margin:4px 0 10px 0;"
+            f"            background:#FEF3C7; border:1px solid #F59E0B; border-radius:20px;"
+            f"            font-size:13px; color:#92400E; font-weight:600;'>"
+            f"  📅 今日复习 · <b style='color:#B73239;'>{_due_today}</b> 个词"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
     # ----- Live session summary strip -----
     sess = st.session_state.get("quiz_session")
     if sess and st.session_state.get("quiz_active"):
@@ -1804,7 +1825,14 @@ def _render_quiz_question(level: str, source_key: str,
 
 def _apply_judgment(qs: dict, word: dict, ok: bool,
                      skipped: bool = False) -> None:
-    """Set the judgment field on the live question + write to DB."""
+    """Set the judgment field on the live question + write to DB.
+
+    Also feeds the answer into the SM-2 spaced-repetition scheduler:
+      correct (not skipped) -> quality 4 (good, slight hesitation)
+      wrong or skipped      -> quality 2 (fail, re-show in 1 day)
+    Mastery via the detail dialog "标记已掌握" button feeds quality 5
+    in a separate code path (see _show_word_detail / dm.toggle_mastered).
+    """
     if skipped:
         qs["judgment"] = "skipped"
     else:
@@ -1814,6 +1842,9 @@ def _apply_judgment(qs: dict, word: dict, ok: bool,
             dm.record_wrong(int(word["id"]))
         else:
             dm.record_correct(int(word["id"]))
+        # SM-2 step: write the new easiness / interval / due_date.
+        quality = 4 if ok and not skipped else 2
+        dm.update_after_review(int(word["id"]), quality)
     except Exception as e:
         st.error(f"自动写库失败: {e}")
 
