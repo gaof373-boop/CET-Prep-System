@@ -893,7 +893,9 @@ class AIService:
         """Send a student essay to the LLM for detailed grading.
 
         Returns a dict with keys:
-            score, summary, errors, upgrades, polished
+            score, summary, errors, upgrades, polished,
+            dimension_scores — 4-dim 0-5 (vocab/grammar/coherence/task),
+            chinglish        — Chinglish-specific fixes
         or None on failure (caller falls back to local heuristic).
         """
         if not self.has_api():
@@ -907,9 +909,18 @@ class AIService:
             "请按以下 JSON 格式输出(不要加额外解释):\n"
             "{\n"
             '  "score": 12,                          // 0-15 分,保留整数\n'
+            '  "dimension_scores": {                // 4 维度 0-5 分, 用来构成 0-15 总分\n'
+            '    "vocab": 4,                         // 词汇高级度\n'
+            '    "grammar": 3,                       // 语法准确性\n'
+            '    "coherence": 3,                     // 篇章连贯性\n'
+            '    "task": 3                           // 题目完成度\n'
+            "  },\n"
             '  "summary": "整体评价,30-60字",\n'
             '  "errors": [                           // 语法/拼写纠错,无错误时 []\n'
             '    {"snippet": "原句片段", "issue": "问题说明", "fix": "改写后的句子"}\n'
+            "  ],\n"
+            '  "chinglish": [\n'
+            '    {"snippet": "中式原句", "issue": "为什么显得生硬", "native_fix": "英美校园地道写法"}\n'
             "  ],\n"
             '  "upgrades": [                        // 低级→高级替换建议\n'
             '    {"from": "low-end phrase", "to": "higher-end alternative", "reason": "为什么更好"}\n'
@@ -919,19 +930,46 @@ class AIService:
         )
         txt = self.call_remote(
             prompt,
-            system="你是一位严格的英语四六级作文阅卷老师,给分不手软,反馈要犀利。",
+            system="你是一位严格的英语四六级作文阅卷老师,给分不手软,反馈要犀利。"
+                   "特别注意:中国学生常把中文思维直译成英文,你要在 chinglish 字段里专门挑出这些。",
         )
         if not txt:
             return None
         parsed = self._parse_json_block(txt)
-        if parsed and parsed.get("score") is not None:
-            # Defensive: cap types
-            try:
-                parsed["score"] = int(parsed["score"])
-            except Exception:
-                parsed["score"] = 0
-            return parsed
-        return None
+        if not parsed or parsed.get("score") is None:
+            return None
+        # Defensive: cap types
+        try:
+            parsed["score"] = int(parsed["score"])
+        except Exception:
+            parsed["score"] = 0
+        # Defensive: dimension_scores keys may be missing
+        ds = parsed.get("dimension_scores") or {}
+        parsed["dimension_scores"] = {
+            "vocab": self._safe_int(ds.get("vocab")),
+            "grammar": self._safe_int(ds.get("grammar")),
+            "coherence": self._safe_int(ds.get("coherence")),
+            "task": self._safe_int(ds.get("task")),
+        }
+        parsed.setdefault("chinglish", [])
+        parsed.setdefault("errors", [])
+        parsed.setdefault("upgrades", [])
+        parsed.setdefault("polished", "")
+        parsed.setdefault("summary", "")
+        return parsed
+
+    @staticmethod
+    def _safe_int(v) -> int | None:
+        """LLM sometimes returns the score as a string '4' or '4.0'.
+        We normalise to int, returning None on garbage so the UI can
+        render '—' instead of crashing on a 0 default.
+        """
+        if v is None:
+            return None
+        try:
+            return max(0, min(5, int(float(v))))
+        except (TypeError, ValueError):
+            return None
 
     # =================================================================
     # Translation line-by-line grading
@@ -942,13 +980,16 @@ class AIService:
         reference: str,
         student: str,
     ) -> dict | None:
-        """Use the LLM to compare a student's Chinese→English translation
+        """Use the LLM to compare a student's Chinese->English translation
         with the reference, returning a structured diagnostic.
 
         Returns a dict with keys:
+            score             — 0-15 总分(4 维度 sum x 0.75)
+            dimension_scores  — 4 维度 0-5: faithfulness / expressiveness /
+                                elegance / terminology(信 / 达 / 雅 / 术语)
             missing_points   — list of scoring keywords the student missed
             chinglish        — list of Chinese-English grammar errors
-            upgrades         — list of {"from":..., "to":..., "reason":...}
+            upgrades         — list of {from, to, reason}
             polished         — a refined reference-quality translation
             summary          — overall 1-sentence verdict (CN)
         Returns None on failure (caller falls back to a heuristic).
@@ -960,34 +1001,58 @@ class AIService:
         prompt = (
             f"你是一位严格的英语四六级翻译阅卷老师,擅长逐句对比学生的中译英作答与标准译文。\n\n"
             f"【中文原文】\n{chinese_text}\n\n"
-            f"【标准参考译文】\n{reference}\n\n"
+            f"【标准参考译文】\n{reference or '(无,AI 自动生成参考译文)'}\n\n"
             f"【学生作答】\n{student}\n\n"
-            f"请完成 3 件事并严格按下述 JSON 格式输出(不要有额外文字):\n"
-            f"1) 【采分点遗漏】:列出学生译文中漏掉的、官方可能采分的关键词/短语/句式 (3-6 条)\n"
-            f"2) 【中式英语硬伤】:逐句指出 Chinglish 错误 (语法/搭配/动词误用等,3-5 条)\n"
-            f"3) 【高级替换建议】:把学生文中至少 3 处低级表达换成高级学术表达\n"
-            f"最后再给一份【润色版】(基于学生原文逻辑,不是重写而是打磨):\n\n"
+            "请完成 3 件事并严格按下述 JSON 格式输出(不要有额外文字):\n"
+            "1) 【采分点遗漏】:列出学生译文中漏掉的、官方可能采分的关键词/短语/句式 (3-6 条)\n"
+            "2) 【中式英语硬伤】:逐句指出 Chinglish 错误 (语法/搭配/动词误用等,3-5 条)\n"
+            "3) 【高级替换建议】:把学生文中至少 3 处低级表达换成高级学术表达\n"
+            "最后给 4 维度评分(每项 0-5 分)+ 整体 0-15 总分 + 润色版 + 简评:\n\n"
             "{\n"
+            '  "score": 12,                          // 0-15 总分(整数,=各维度求和*0.75)\n'
+            '  "dimension_scores": {                // 4 维度 0-5, 加总后×0.75 归一到 0-15\n'
+            '    "faithfulness": 4,                  // 信:忠于原文\n'
+            '    "expressiveness": 3,                // 达:通顺自然\n'
+            '    "elegance": 3,                      // 雅:文笔典雅\n'
+            '    "terminology": 3                    // 术语/搭配地道\n'
+            "  },\n"
             '  "missing_points": ["要点 1", "要点 2", ...],\n'
             '  "chinglish": [\n'
-            '    {"sentence": "学生原句", "issue": "问题", "fix": "建议改写"}\n'
-            '  ],\n'
+            '    {"sentence": "学生原句", "issue": "问题", "native_fix": "地道英文写法"}\n'
+            "  ],\n"
             '  "upgrades": [\n'
             '    {"from": "low-end", "to": "higher-end", "reason": "为什么更好"}\n'
-            '  ],\n'
+            "  ],\n"
             '  "polished": "完整润色版译文",\n'
             '  "summary": "整体评价,30-60 字"\n'
             "}"
         )
         txt = self.call_remote(
             prompt,
-            system="你是一位严格的四六级翻译阅卷老师,逐句诊断,反馈要犀利具体。",
+            system="你是一位严格的四六级翻译阅卷老师,逐句诊断,反馈要犀利具体。"
+                   "特别注意:挑出中式英语硬伤,给出英美校园地道的 native_fix。",
         )
         if not txt:
             return None
         parsed = self._parse_json_block(txt)
         if not parsed or "missing_points" not in parsed:
             return None
+        # Backward compat: chinglish used "fix", now also "native_fix"
+        for ch in parsed.get("chinglish", []) or []:
+            if isinstance(ch, dict) and "fix" in ch and "native_fix" not in ch:
+                ch["native_fix"] = ch["fix"]
+        # Defensive: cap score type, dimension scores
+        try:
+            parsed["score"] = int(parsed.get("score") or 0)
+        except (TypeError, ValueError):
+            parsed["score"] = 0
+        ds = parsed.get("dimension_scores") or {}
+        parsed["dimension_scores"] = {
+            "faithfulness": self._safe_int(ds.get("faithfulness")),
+            "expressiveness": self._safe_int(ds.get("expressiveness")),
+            "elegance": self._safe_int(ds.get("elegance")),
+            "terminology": self._safe_int(ds.get("terminology")),
+        }
         # Defensive defaults
         parsed.setdefault("chinglish", [])
         parsed.setdefault("upgrades", [])
