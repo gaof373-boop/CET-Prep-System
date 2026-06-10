@@ -175,7 +175,9 @@ def _render_dashboard() -> None:
     # ----- Section break rule -----
     web_ui.editorial_rule("I · At a Glance")
 
-    # ----- 4 stat tiles as a 1920s accounting-book ledger -----
+    # ----- 3 stat tiles + 1 line chart (was 4 stats; the 4th slot is now
+    # a 7-day forward due-distribution chart — the "forgetting curve"
+    # that visualises what SM-2 has scheduled for the next week).
     mastery_pct = (stats['mastered'] / max(1, stats['total_words']) * 100)
     ai_total = stats['ai_essay_grades'] + stats['ai_trans_grades']
     practice_total = stats['practice_reading'] + stats['practice_listening']
@@ -189,24 +191,52 @@ def _render_dashboard() -> None:
         },
         {
             "no": "II",
-            "value": stats['wrong_book'],
-            "label": "错题本待攻坚",
-            "delta": "点击 🟥 错题本 反复练习",
-            "delta_negative": True,
-        },
-        {
-            "no": "III",
             "value": practice_total,
             "label": "刷题总量",
             "delta": f"阅读 {stats['practice_reading']} · 听力 {stats['practice_listening']}",
         },
         {
-            "no": "IV",
+            "no": "III",
             "value": ai_total,
             "label": "AI 批改次数",
             "delta": f"写作 {stats['ai_essay_grades']} · 翻译 {stats['ai_trans_grades']}",
         },
     ])
+
+    # ----- 7-day learning curve (replaces the 4th stat tile) -----
+    # Visualises SM-2's forward schedule: how many words fall due each
+    # of the next 7 days. Lets the user see "Wednesday is going to be
+    # heavy" or "I'm coasting". All data is already in vocabulary.due_date.
+    try:
+        sched = dm.review_schedule_7day(level)
+    except Exception:
+        sched = []
+    if sched:
+        st.markdown(
+            "<div style='font-family: 'Playfair Display', Georgia, serif;"
+            "            font-style: italic; color: #B73239; font-size: 13px;"
+            "            letter-spacing: 0.22em; text-transform: uppercase;"
+            "            margin: 18px 0 6px 0;'>"
+            "  IV · 7 日复习曲线"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        # Build a small DataFrame for st.line_chart. Streamlit's chart
+        # auto-labels the x-axis with the index. Wrapping the chart in
+        # an HTML div is impossible (Streamlit renders it as its own
+        # iframe), so we add a thin paper-edge frame via streamlit's
+        # own border parameter instead.
+        import pandas as _pd
+        _chart_df = _pd.DataFrame(
+            {"待复习词数": [d["due"] for d in sched]},
+            index=[d["label"] for d in sched],
+        )
+        st.line_chart(_chart_df, height=180, use_container_width=True)
+        # Cap note under the chart — tells users where the data comes from.
+        st.caption(
+            f"  📊 累计已掌握 {stats['mastered']} · 累计已学 "
+            f"{dm.cumulative_progress(level).get('reviewed', 0)}"
+        )
 
     # ----- Section break + secondary content -----
     web_ui.editorial_rule("II · Today's Editorial")

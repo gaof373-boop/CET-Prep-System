@@ -678,7 +678,91 @@ class DataManager:
             "never_seen": int(never_row["n"]),
         }
 
-    def bootstrap_legacy_review_state(self) -> int:
+    def review_schedule_7day(self, level: str) -> list[dict]:
+        """7-day forward SM-2 due distribution.
+
+        Returns a list of 7 dicts, one per day from today through
+        today+6, in chronological order:
+            [{"date": "2026-06-10", "due": 23, "label": "今日"}, ...]
+
+        Used by the dashboard learning-curve chart. Single SQL query
+        that groups rows by their due_date and bucketed into 7 days.
+        Rows with NULL due_date (never reviewed) are bucketed into
+        "今日" since SM-2 treats them as due now.
+        """
+        import datetime as _dt
+        today = _dt.date.today()
+        # 7 dates, today + 6 future
+        days = [today + _dt.timedelta(days=i) for i in range(7)]
+        labels = ["今日", "明天", "后天"] + [f"+{i}d" for i in range(3, 7)]
+        # Single pass: count rows with due_date in [day_i, day_i+1)
+        # and last_seen_at IS NULL (always due today) counted on day 0
+        with self._conn() as c:
+            rows = c.execute(
+                "SELECT due_date, last_seen_at FROM vocabulary "
+                "WHERE level = ? AND mastered = 0",
+                (level,),
+            ).fetchall()
+        # Bucket
+        buckets = {d.isoformat(): 0 for d in days}
+        for r in rows:
+            if r["last_seen_at"] is None:
+                buckets[days[0].isoformat()] += 1
+                continue
+            if r["due_date"] is None:
+                buckets[days[0].isoformat()] += 1
+                continue
+            try:
+                due = _dt.date.fromisoformat(r["due_date"])
+            except ValueError:
+                buckets[days[0].isoformat()] += 1
+                continue
+            for d in days:
+                if due == d:
+                    buckets[d.isoformat()] += 1
+                    break
+            # If due is far in the past, count it as "今日" (overdue)
+            if due < days[0]:
+                buckets[days[0].isoformat()] += 1
+            # If due is > 6 days out, drop from chart
+        return [
+            {"date": d.isoformat(), "due": buckets[d.isoformat()], "label": labels[i]}
+            for i, d in enumerate(days)
+        ]
+
+    def cumulative_progress(self, level: str) -> dict[str, int]:
+        """Cumulative lifetime numbers for the dashboard.
+
+        Returns
+        -------
+        dict with:
+            mastered    — vocab rows with mastered=1
+            reviewed    — rows with last_seen_at IS NOT NULL
+                          (i.e. user has touched this card at least once)
+            wrong_book  — rows with wrong_count > 0
+        All three are pure SQL COUNT(*), no Python aggregation.
+        """
+        with self._conn() as c:
+            mastered_row = c.execute(
+                "SELECT COUNT(*) AS n FROM vocabulary "
+                "WHERE level = ? AND mastered = 1",
+                (level,),
+            ).fetchone()
+            reviewed_row = c.execute(
+                "SELECT COUNT(*) AS n FROM vocabulary "
+                "WHERE level = ? AND last_seen_at IS NOT NULL",
+                (level,),
+            ).fetchone()
+            wrong_row = c.execute(
+                "SELECT COUNT(*) AS n FROM vocabulary "
+                "WHERE level = ? AND wrong_count > 0",
+                (level,),
+            ).fetchone()
+        return {
+            "mastered": int(mastered_row["n"]),
+            "reviewed": int(reviewed_row["n"]),
+            "wrong_book": int(wrong_row["n"]),
+        }
         """One-shot migration: rows where ``consec_correct >= 3`` already
         (old data, never had easiness/due_date) get a 30-day forward
         due_date so they don't pop back up immediately when users first
