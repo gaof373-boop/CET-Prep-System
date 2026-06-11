@@ -318,6 +318,8 @@ def main() -> int:
                              "代码会自动 fallback 到 en-US-GuyNeural。")
     parser.add_argument("--no-narrator", action="store_true",
                         help="不追加题干旁白,只生成对话音频")
+    parser.add_argument("--force", action="store_true",
+                        help="重新生成已存在的 mp3(覆盖),与 --no-narrator 不冲突")
     args = parser.parse_args()
 
     init_database()
@@ -350,7 +352,7 @@ def main() -> int:
             out_path = AUDIO_DIR / fname
             # 也存到 DB 字段 (相对路径)
             rel_path = f"database/audio/{fname}"
-            if out_path.exists() and out_path.stat().st_size > 0:
+            if out_path.exists() and out_path.stat().st_size > 0 and not args.force:
                 # Make sure DB also reflects the path (use a fresh conn
                 # — the main dm._conn() may still hold a write tx).
                 if r.get("audio_file") != rel_path:
@@ -367,6 +369,8 @@ def main() -> int:
                 print(f"  ↻ id={r['id']:>3d}  {fname}  (已存在 {out_path.stat().st_size//1024}KB,跳过)")
                 total_skipped += 1
                 continue
+            if out_path.exists() and args.force:
+                print(f"  ⚡ id={r['id']:>3d}  {fname}  (--force 覆盖已有 {out_path.stat().st_size//1024}KB)")
             total_planned += 1
             if args.dry_run:
                 # show what we'd do
