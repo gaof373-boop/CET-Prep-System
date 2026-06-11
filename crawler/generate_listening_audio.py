@@ -133,37 +133,53 @@ async def _synth_bytes(voice: str, rate: str, text: str) -> bytes:
     return b""
 
 
-def _extract_question_text(questions_json: str | None) -> str | None:
-    """Parse the listening 'questions' JSON column and return the FIRST
-    question's text (the main "what is the conversation mainly about"
-    prompt the narrator should read aloud). Returns ``None`` if the field
-    is empty, unparseable, or has no questions.
+def _extract_all_questions(questions_json: str | None) -> list[str]:
+    """Parse the listening 'questions' JSON column and return ALL
+    question texts in order.
+
+    The listening table stores one row per dialogue/passage, with
+    multiple sub-questions inside the 'questions' JSON column. We
+    need ALL of them in the narrator's audio so the test-taker
+    hears every question after the dialogue, not just the first.
+
+    Returns ``[]`` if the field is empty, unparseable, or has no
+    questions. Each entry is stripped of leading/trailing whitespace;
+    empty strings are filtered out.
 
     The questions column is a JSON string like
-    ``[{"q": "...", "options": [...]}, ...]``. We grab only the first ``q``
-    so the narrator doesn't dump every sub-question into one audio (which
-    would push the audio past 60s and lose the exam tempo).
+    ``[{"q": "...", "options": [...]}, ...]``.
     """
     import json
+    out: list[str] = []
     if not questions_json or not questions_json.strip():
-        return None
+        return out
     try:
         data = json.loads(questions_json)
     except Exception:
-        return None
-    if not isinstance(data, list) or not data:
-        return None
-    first = data[0]
-    if not isinstance(first, dict):
-        return None
-    q = (first.get("q") or "").strip()
-    return q or None
+        return out
+    if not isinstance(data, list):
+        return out
+    for item in data:
+        if isinstance(item, dict):
+            q = (item.get("q") or "").strip()
+            if q:
+                out.append(q)
+    return out
+
+
+def _extract_question_text(questions_json: str | None) -> str | None:
+    """Backward-compat helper: returns the FIRST question's text.
+    New code should use ``_extract_all_questions``.
+    """
+    items = _extract_all_questions(questions_json)
+    return items[0] if items else None
 
 
 async def _synth_multi_voice(
     rate: str, text: str, out_path: Path,
     voice_w: str = VOICE_WOMAN, voice_m: str = VOICE_MAN,
     narrator_voice: str | None = None,
+    question_texts: list[str] | None = None,
     question_text: str | None = None,
 ) -> None:
     """Per-line TTS with woman/man voice alternation, then byte-concat.
@@ -177,12 +193,33 @@ async def _synth_multi_voice(
     self-contained (carries its own sync + header). No ffmpeg / pydub
     dependency needed.
 
-    When ``narrator_voice`` and ``question_text`` are both provided, the
-    output is ``dialogue_bytes + 1.5s_silence + narrator_bytes`` —
-    i.e. the dialogue plays first, then a short buffer so the test-taker
-    can take a breath, then the narrator reads the question. The
-    narrator uses a SEPARATE voice (``narrator_voice``, default
-    ``en-US-DavisNeural``) so the speaker-tag shift is unmistakable.
+    Narrator behaviour — when ``narrator_voice`` is set, the output is:
+        dialogue_bytes
+        + buffer1 (≈1.5s of "mm." filler)
+        + "Question. <q1 text>"
+        + buffer2
+        + "Question. <q2 text>"
+        + buffer3
+        + "Question. <q3 text>"
+        + ...
+
+    ``question_texts`` is the preferred plural form (preferred — pass
+    ``_extract_all_questions(questions_json)``). ``question_text`` is
+    the legacy singular form, kept for callers that haven't migrated.
+    If both are given, ``question_texts`` wins.
+
+    The narrator uses a SEPARATE voice (``narrator_voice``, default
+    ``en-US-GuyNeural`` because Davis is intermittent on edge-tts)
+    so the speaker-tag shift is unmistakable. The same voice is used
+    for both the buffer filler and the question prompt so the entire
+    narrator block sounds like one announcer.
+
+    The "Question. <stem>" prefix follows the standard format used by
+    TOEFL / IELTS / Cambridge official audio. We do NOT number the
+    questions ("Question 1, Question 2...") because in our
+    one-dialogue-per-row model there are no numbers — the dialogue
+    plays once, then ALL questions in sequence, then the student
+    answers.
     """
     import edge_tts  # heavy import, only when actually synthesising
 
@@ -211,37 +248,44 @@ async def _synth_multi_voice(
 
     dialogue_bytes = b"".join(audio_blobs)
 
-    # ---- Append narrator audio ----
-    # We do NOT insert 1.5s of pure silence — edge-tts rejects every
-    # silent input (.  / SSML break / filler words) with NoAudioReceived.
-    # Instead we use a short, ETS-style prefix that gives a natural
-    # ~300ms pause between the dialogue's last syllable and the
-    # question text:
-    #
-    #   "Question. <题干文本>"
-    #
-    # Rationale: section field is Chinese ("短对话 / 长对话 / 短文"),
-    # which edge-tts pronounces poorly (e.g. "duǎn duì huà" via pinyin)
-    # and would confuse test-takers. Numbering questions ("Question 1")
-    # is meaningless in our one-question-per-audio model. So we read
-    # only the question stem, prefixed with a single word that matches
-    # the standard format used by TOEFL/IELTS official audio.
+    # ---- Append narrator block (one block per sub-question) ----
+    # Normalise the question list — ``question_texts`` wins if given,
+    # else we fall back to the legacy singular ``question_text`` wrapped
+    # in a list. This keeps callers that only know about the old API
+    # working while letting new code pass the full list.
+    if question_texts is None and question_text:
+        question_texts = [question_text]
+
     tail_bytes = b""
-    if narrator_voice and question_text:
-        narration_text = f"Question. {question_text}"
-        narrator_bytes = await _synth_bytes(narrator_voice, rate, narration_text)
-        tail_bytes = narrator_bytes
+    if narrator_voice and question_texts:
+        # Pre-generate the buffer filler once — same audio clip reused
+        # between every pair of questions, so all inter-question pauses
+        # are the same length (more "official audio" feel). The text
+        # "mm." produces ~1.5s of mostly-silent padding on edge-tts
+        # (verified 2026-06-11) and crucially edge-tts accepts this
+        # input whereas pure silence / SSML break all return
+        # ``NoAudioReceived``.
+        buffer_text = "mm."
+        buffer_bytes = await _synth_bytes(narrator_voice, rate, buffer_text)
+        for i, q in enumerate(question_texts):
+            if i > 0:
+                tail_bytes += buffer_bytes
+            narration_text = f"Question. {q}"
+            narrator_bytes = await _synth_bytes(narrator_voice, rate, narration_text)
+            tail_bytes += narrator_bytes
 
     out_path.write_bytes(dialogue_bytes + tail_bytes)
 
 
 def _synth_split_sync(rate: str, text: str, out_path: Path,
                        narrator_voice: str | None = None,
+                       question_texts: list[str] | None = None,
                        question_text: str | None = None) -> None:
     """Thread-safe wrapper for the multi-voice path."""
     asyncio.run(_synth_multi_voice(
         rate, text, out_path,
         narrator_voice=narrator_voice,
+        question_texts=question_texts,
         question_text=question_text,
     ))
 
@@ -344,11 +388,11 @@ def main() -> int:
                         if not args.no_narrator and args.narrator_voice
                         else None
                     )
-                    q_text = _extract_question_text(r.get("questions")) if narrator_voice else None
+                    q_texts = _extract_all_questions(r.get("questions")) if narrator_voice else None
                     _synth_split_sync(
                         args.rate, text, out_path,
                         narrator_voice=narrator_voice,
-                        question_text=q_text,
+                        question_texts=q_texts,
                     )
                 else:
                     # No multi-voice path means no narrator either —

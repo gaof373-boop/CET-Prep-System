@@ -3019,8 +3019,44 @@ def _render_practice_session(kind: str,
                 st.warning(f"音频加载失败:{e}")
         else:
             st.info("⚠️ 此题暂无音频文件,可参考下方原文练习")
-        with st.expander("📜 听力原文 (做完再展开核对)", expanded=False):
+        with st.expander("📜 听力原文、问句题干与核心解析",
+                         expanded=False):
+            st.markdown(
+                "<div style='font-size:13px; color:#5A5247; line-height:1.7;'>"
+                "🎧 <b>对话原文</b> (听完后对照精读):</div>",
+                unsafe_allow_html=True,
+            )
             st.write(item.get("audio_script", "") or "(暂无原文)")
+            # Sub-question stems — the audio narrates these in order,
+            # and the student can refer back here once the audio is
+            # done. Listed by Q1 / Q2 / ... matching the on-screen
+            # "Question X" labels above each radio.
+            st.markdown(
+                "<div style='font-size:13px; color:#B73239; font-weight:600; "
+                "margin:14px 0 6px 0;'>📝 <b>问句题干</b> (按播放顺序排列):</div>",
+                unsafe_allow_html=True,
+            )
+            for qi, q in enumerate(questions):
+                stem = (q.get("q") or "(题干缺失)").strip()
+                opts = q.get("options", []) or []
+                # Match the narrator's spoken prefix so the user can
+                # cross-reference what they heard with what they read.
+                st.markdown(
+                    f"<div style='margin:6px 0 2px 0; line-height:1.7;'>"
+                    f"<b style='color:#B73239;'>Question {qi+1}.</b> "
+                    f"<span style='color:#1F2937;'>{_html_escape(stem)}</span></div>",
+                    unsafe_allow_html=True,
+                )
+                if opts:
+                    opts_html = " &nbsp;·&nbsp; ".join(
+                        f"<span style='color:#475569;'>{_html_escape(o)}</span>"
+                        for o in opts
+                    )
+                    st.markdown(
+                        f"<div style='margin:0 0 6px 24px; font-size:13px;'>"
+                        f"{opts_html}</div>",
+                        unsafe_allow_html=True,
+                    )
 
     # ---- questions ----
     questions = _safe_json_loads(item.get("questions"), default=[])
@@ -3032,15 +3068,26 @@ def _render_practice_session(kind: str,
 
     st.markdown("---")
     st.markdown("### 📝 题目")
+    # NOTE: we deliberately do NOT render the question text above the
+    # radio buttons. The full question stems are in the expander below
+    # (folded by default) so the test-taker hears the question in the
+    # audio first, then sees the radio options without the spoiler.
     for qi, q in enumerate(questions):
-        st.markdown(f"**Q{qi+1}. {q.get('q','(题目缺失)')}**")
         opts = q.get("options", []) or []
         if not opts:
-            st.caption("(无选项)")
+            st.caption(f"Q{qi+1}. (无选项)")
             continue
         # Pre-select the previously stored answer if any, otherwise the first option.
         prev = pstate["answers"].get(qi)
         idx_default = opts.index(prev) if prev in opts else 0
+        # Tiny "Q1 / Q2 / ..." label above each radio so the student
+        # can still navigate by question number without seeing the text.
+        st.markdown(
+            f"<div style='font-size:12px; color:#B73239; font-weight:700; "
+            f"letter-spacing:0.05em; margin:8px 0 4px 0;'>"
+            f"Question {qi+1} / 共 {len(questions)} 题</div>",
+            unsafe_allow_html=True,
+        )
         chosen = st.radio(
             label=f"q_{state_key}_{qi}",
             options=opts,
