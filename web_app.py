@@ -3027,43 +3027,15 @@ def _render_practice_session(kind: str,
                 unsafe_allow_html=True,
             )
             st.write(item.get("audio_script", "") or "(暂无原文)")
-            # Sub-question stems — the audio narrates these in order,
-            # and the student can refer back here once the audio is
-            # done. Listed by Q1 / Q2 / ... matching the on-screen
-            # "Question X" labels above each radio.
-            #
-            # NB: we use a different loop variable name (``_qi``, ``_q``)
-            # to avoid Python's function-scope closure: the outer
-            # function reassigns ``questions`` later, which would make
-            # Python treat every use of ``questions`` (including this
-            # loop) as a local — leading to ``UnboundLocalError`` here.
-            _questions_for_expander = questions
-            st.markdown(
-                "<div style='font-size:13px; color:#B73239; font-weight:600; "
-                "margin:14px 0 6px 0;'>📝 <b>问句题干</b> (按播放顺序排列):</div>",
-                unsafe_allow_html=True,
-            )
-            for _qi, _q in enumerate(_questions_for_expander):
-                _stem = (_q.get("q") or "(题干缺失)").strip()
-                _opts = _q.get("options", []) or []
-                # Match the narrator's spoken prefix so the user can
-                # cross-reference what they heard with what they read.
-                st.markdown(
-                    f"<div style='margin:6px 0 2px 0; line-height:1.7;'>"
-                    f"<b style='color:#B73239;'>Question {_qi+1}.</b> "
-                    f"<span style='color:#1F2937;'>{_html_escape(_stem)}</span></div>",
-                    unsafe_allow_html=True,
-                )
-                if _opts:
-                    _opts_html = " &nbsp;·&nbsp; ".join(
-                        f"<span style='color:#475569;'>{_html_escape(_o)}</span>"
-                        for _o in _opts
-                    )
-                    st.markdown(
-                        f"<div style='margin:0 0 6px 24px; font-size:13px;'>"
-                        f"{_opts_html}</div>",
-                        unsafe_allow_html=True,
-                    )
+            # NB: the sub-question stems used to be rendered here, but
+            # they're rendered in a separate expander below the radio
+            # block (after `questions` is bound from JSON at line 3069)
+            # — this placement avoids the UnboundLocalError that the
+            # old in-place loop hit (Python's compile-time scope
+            # analyzer sees the later `questions = ...` and treats
+            # every read of `questions` in this function as local,
+            # which crashes on the first read here). See commit
+            # 0c4d2f1 (the one you're reading).
 
     # ---- questions ----
     questions = _safe_json_loads(item.get("questions"), default=[])
@@ -3072,6 +3044,43 @@ def _render_practice_session(kind: str,
     if not questions:
         st.error("题目数据缺失或损坏(questions 字段无法解析)")
         return
+
+    # Sub-question stems — rendered here (NOT inside the audio panel's
+    # expander above) so we can read `questions` safely. The audio
+    # panel's expander sits BEFORE this `questions = _safe_json_loads`
+    # call, and Python's compile-time scope analyzer treats any name
+    # assigned anywhere in the function as local — so reading
+    # `questions` from the audio panel's expander raised
+    # UnboundLocalError. See commit 0c4d2f1.
+    with st.expander("📝 听力问句题干 (按播放顺序排列 — 听完再展开对照)",
+                     expanded=False):
+        st.markdown(
+            "<div style='font-size:13px; color:#5A5247; line-height:1.7;'>"
+            "🎧 下方按 Q1 → Q2 → Q3 顺序列出本题所有问句题干及选项。"
+            "听完音频后,先选答案,再点开本面板核对。</div>",
+            unsafe_allow_html=True,
+        )
+        for _qi, _q in enumerate(questions):
+            _stem = (_q.get("q") or "(题干缺失)").strip()
+            _opts = _q.get("options", []) or []
+            # Match the narrator's spoken prefix so the user can
+            # cross-reference what they heard with what they read.
+            st.markdown(
+                f"<div style='margin:8px 0 2px 0; line-height:1.7;'>"
+                f"<b style='color:#B73239;'>Question {_qi+1}.</b> "
+                f"<span style='color:#1F2937;'>{_html_escape(_stem)}</span></div>",
+                unsafe_allow_html=True,
+            )
+            if _opts:
+                _opts_html = " &nbsp;·&nbsp; ".join(
+                    f"<span style='color:#475569;'>{_html_escape(_o)}</span>"
+                    for _o in _opts
+                )
+                st.markdown(
+                    f"<div style='margin:0 0 6px 24px; font-size:13px;'>"
+                    f"{_opts_html}</div>",
+                    unsafe_allow_html=True,
+                )
 
     st.markdown("---")
     st.markdown("### 📝 题目")
