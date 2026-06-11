@@ -3079,7 +3079,14 @@ def _render_practice_session(kind: str,
     # radio buttons. The full question stems are in the expander below
     # (folded by default) so the test-taker hears the question in the
     # audio first, then sees the radio options without the spoiler.
-    for qi, q in enumerate(questions):
+    #
+    # NB: we read ``questions`` ONCE into ``_qs`` here so Python's
+    # scope analyzer doesn't fall into the "treated-as-local" trap
+    # when the outer function later reassigns ``questions`` (line ~3424).
+    # Using a fresh name also avoids accidentally rebinding the outer
+    # function's local.
+    _qs = questions
+    for qi, q in enumerate(_qs):
         opts = q.get("options", []) or []
         if not opts:
             st.caption(f"Q{qi+1}. (无选项)")
@@ -3092,7 +3099,7 @@ def _render_practice_session(kind: str,
         st.markdown(
             f"<div style='font-size:12px; color:#B73239; font-weight:700; "
             f"letter-spacing:0.05em; margin:8px 0 4px 0;'>"
-            f"Question {qi+1} / 共 {len(questions)} 题</div>",
+            f"Question {qi+1} / 共 {len(_qs)} 题</div>",
             unsafe_allow_html=True,
         )
         chosen = st.radio(
