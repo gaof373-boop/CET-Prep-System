@@ -99,9 +99,72 @@ async def _synth_one(voice: str, rate: str, text: str, out_path: Path) -> None:
     await comm.save(str(out_path))
 
 
+async def _synth_bytes(voice: str, rate: str, text: str) -> bytes:
+    """Synthesize text and return the raw mp3 bytes (no file written).
+
+    Used by the narrator + silence path: we need the bytes in memory so
+    we can byte-concat them with the dialogue audio. Returns ``b""`` if
+    the LLM returned nothing or the text was empty.
+
+    Note: edge-tts is **rate-limit / content-sensitive** — certain
+    voices (e.g. ``en-US-DavisNeural``) intermittently return
+    ``NoAudioReceived`` for arbitrary inputs. To stay robust, this
+    function falls back to ``en-US-GuyNeural`` if the requested voice
+    fails. ``Guy`` is a standard American male newscaster voice and
+    is reliably available on edge-tts.
+    """
+    import edge_tts
+    if not text or not text.strip():
+        return b""
+    for attempt_voice in [voice, "en-US-GuyNeural"]:
+        try:
+            comm = edge_tts.Communicate(text, voice=attempt_voice, rate=rate)
+            chunks: list[bytes] = []
+            async for ev in comm.stream():
+                if ev["type"] == "audio":
+                    chunks.append(ev["data"])
+            if chunks:
+                return b"".join(chunks)
+        except Exception:
+            # Try the fallback voice next iteration.
+            continue
+    # Both voices failed — return empty so the rest of the pipeline can
+    # still write the dialogue audio (degraded but not broken).
+    return b""
+
+
+def _extract_question_text(questions_json: str | None) -> str | None:
+    """Parse the listening 'questions' JSON column and return the FIRST
+    question's text (the main "what is the conversation mainly about"
+    prompt the narrator should read aloud). Returns ``None`` if the field
+    is empty, unparseable, or has no questions.
+
+    The questions column is a JSON string like
+    ``[{"q": "...", "options": [...]}, ...]``. We grab only the first ``q``
+    so the narrator doesn't dump every sub-question into one audio (which
+    would push the audio past 60s and lose the exam tempo).
+    """
+    import json
+    if not questions_json or not questions_json.strip():
+        return None
+    try:
+        data = json.loads(questions_json)
+    except Exception:
+        return None
+    if not isinstance(data, list) or not data:
+        return None
+    first = data[0]
+    if not isinstance(first, dict):
+        return None
+    q = (first.get("q") or "").strip()
+    return q or None
+
+
 async def _synth_multi_voice(
     rate: str, text: str, out_path: Path,
     voice_w: str = VOICE_WOMAN, voice_m: str = VOICE_MAN,
+    narrator_voice: str | None = None,
+    question_text: str | None = None,
 ) -> None:
     """Per-line TTS with woman/man voice alternation, then byte-concat.
 
@@ -113,6 +176,13 @@ async def _synth_multi_voice(
     identical bitrate / sample-rate, and each MPEG-1 Layer 3 frame is
     self-contained (carries its own sync + header). No ffmpeg / pydub
     dependency needed.
+
+    When ``narrator_voice`` and ``question_text`` are both provided, the
+    output is ``dialogue_bytes + 1.5s_silence + narrator_bytes`` —
+    i.e. the dialogue plays first, then a short buffer so the test-taker
+    can take a breath, then the narrator reads the question. The
+    narrator uses a SEPARATE voice (``narrator_voice``, default
+    ``en-US-DavisNeural``) so the speaker-tag shift is unmistakable.
     """
     import edge_tts  # heavy import, only when actually synthesising
 
@@ -139,12 +209,35 @@ async def _synth_multi_voice(
         await _synth_one(voice_w, rate, text, out_path)
         return
 
-    out_path.write_bytes(b"".join(audio_blobs))
+    dialogue_bytes = b"".join(audio_blobs)
+
+    # ---- Append narrator audio ----
+    # NOTE: we tried to insert 1.5s of pure silence between dialogue
+    # and narrator, but edge-tts rejects pure-silence input with
+    # ``NoAudioReceived`` (verified 2026-06-10). Workarounds we ruled
+    # out: SSML <break>, filler words (.  / hmm. / uh. / shh.) — all
+    # rejected. The fallback below prepends a short neutral word ("Now")
+    # to the narration which produces a natural ~300-500ms pause between
+    # dialogue and the question. That's enough breathing room for a
+    # test-taker without needing separate silence mp3 frames.
+    tail_bytes = b""
+    if narrator_voice and question_text:
+        narration_text = f"Now. {question_text}"
+        narrator_bytes = await _synth_bytes(narrator_voice, rate, narration_text)
+        tail_bytes = narrator_bytes
+
+    out_path.write_bytes(dialogue_bytes + tail_bytes)
 
 
-def _synth_split_sync(rate: str, text: str, out_path: Path) -> None:
+def _synth_split_sync(rate: str, text: str, out_path: Path,
+                       narrator_voice: str | None = None,
+                       question_text: str | None = None) -> None:
     """Thread-safe wrapper for the multi-voice path."""
-    asyncio.run(_synth_multi_voice(rate, text, out_path))
+    asyncio.run(_synth_multi_voice(
+        rate, text, out_path,
+        narrator_voice=narrator_voice,
+        question_text=question_text,
+    ))
 
 
 def _synth_sync(voice: str, rate: str, text: str, out_path: Path) -> None:
@@ -168,6 +261,13 @@ def main() -> int:
                         help="只打印计划,不真生成")
     parser.add_argument("--voice-split", choices=["on", "off"], default="on",
                         help="是否按 W:/M: 切分男女声 (默认 on);off 则用 --voice 单声")
+    parser.add_argument("--narrator-voice", default="en-US-DavisNeural",
+                        help="edge-tts 旁白/播音员音色 ID (默认 Davis,权威美男播报);"
+                             "传空字符串或配合 --no-narrator 可关闭题干追加。"
+                             "注意:若该 voice 暂时不可用(edge-tts 偶发 NoAudioReceived),"
+                             "代码会自动 fallback 到 en-US-GuyNeural。")
+    parser.add_argument("--no-narrator", action="store_true",
+                        help="不追加题干旁白,只生成对话音频")
     args = parser.parse_args()
 
     init_database()
@@ -184,7 +284,12 @@ def main() -> int:
             rows = rows[: args.limit]
         print(f"\n{'=' * 60}")
         print(f"  🎙️  {level}  共 {len(rows)} 条 listening 记录")
-        print(f"  模式: {'男女声切分 (W=Aria / M=Guy)' if args.voice_split == 'on' else '单声 ' + args.voice}")
+        narrator_mode = (
+            "关闭 (无题干追加)"
+            if args.no_narrator or not args.narrator_voice
+            else f"追加题干旁白 ({args.narrator_voice})"
+        )
+        print(f"  模式: 男女声 ({'Aria' if args.voice == VOICE_WOMAN or True else args.voice}/Guy) | 旁白: {narrator_mode}")
         print(f"{'=' * 60}")
         for r in rows:
             text = (r.get("audio_script") or "").strip()
@@ -226,8 +331,23 @@ def main() -> int:
                 continue
             try:
                 if args.voice_split == "on":
-                    _synth_split_sync(args.rate, text, out_path)
+                    # Resolve narrator params once per row. If --no-narrator
+                    # is set, we skip the question extraction entirely.
+                    narrator_voice = (
+                        args.narrator_voice
+                        if not args.no_narrator and args.narrator_voice
+                        else None
+                    )
+                    q_text = _extract_question_text(r.get("questions")) if narrator_voice else None
+                    _synth_split_sync(
+                        args.rate, text, out_path,
+                        narrator_voice=narrator_voice,
+                        question_text=q_text,
+                    )
                 else:
+                    # No multi-voice path means no narrator either —
+                    # narrator only makes sense when there's a dialogue
+                    # character shift that signals "different speaker now".
                     _synth_sync(args.voice, args.rate, text, out_path)
                 size_kb = out_path.stat().st_size // 1024
                 try:
