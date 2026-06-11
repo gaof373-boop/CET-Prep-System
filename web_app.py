@@ -3031,30 +3031,37 @@ def _render_practice_session(kind: str,
             # and the student can refer back here once the audio is
             # done. Listed by Q1 / Q2 / ... matching the on-screen
             # "Question X" labels above each radio.
+            #
+            # NB: we use a different loop variable name (``_qi``, ``_q``)
+            # to avoid Python's function-scope closure: the outer
+            # function reassigns ``questions`` later, which would make
+            # Python treat every use of ``questions`` (including this
+            # loop) as a local — leading to ``UnboundLocalError`` here.
+            _questions_for_expander = questions
             st.markdown(
                 "<div style='font-size:13px; color:#B73239; font-weight:600; "
                 "margin:14px 0 6px 0;'>📝 <b>问句题干</b> (按播放顺序排列):</div>",
                 unsafe_allow_html=True,
             )
-            for qi, q in enumerate(questions):
-                stem = (q.get("q") or "(题干缺失)").strip()
-                opts = q.get("options", []) or []
+            for _qi, _q in enumerate(_questions_for_expander):
+                _stem = (_q.get("q") or "(题干缺失)").strip()
+                _opts = _q.get("options", []) or []
                 # Match the narrator's spoken prefix so the user can
                 # cross-reference what they heard with what they read.
                 st.markdown(
                     f"<div style='margin:6px 0 2px 0; line-height:1.7;'>"
-                    f"<b style='color:#B73239;'>Question {qi+1}.</b> "
-                    f"<span style='color:#1F2937;'>{_html_escape(stem)}</span></div>",
+                    f"<b style='color:#B73239;'>Question {_qi+1}.</b> "
+                    f"<span style='color:#1F2937;'>{_html_escape(_stem)}</span></div>",
                     unsafe_allow_html=True,
                 )
-                if opts:
-                    opts_html = " &nbsp;·&nbsp; ".join(
-                        f"<span style='color:#475569;'>{_html_escape(o)}</span>"
-                        for o in opts
+                if _opts:
+                    _opts_html = " &nbsp;·&nbsp; ".join(
+                        f"<span style='color:#475569;'>{_html_escape(_o)}</span>"
+                        for _o in _opts
                     )
                     st.markdown(
                         f"<div style='margin:0 0 6px 24px; font-size:13px;'>"
-                        f"{opts_html}</div>",
+                        f"{_opts_html}</div>",
                         unsafe_allow_html=True,
                     )
 
