@@ -212,17 +212,23 @@ async def _synth_multi_voice(
     dialogue_bytes = b"".join(audio_blobs)
 
     # ---- Append narrator audio ----
-    # NOTE: we tried to insert 1.5s of pure silence between dialogue
-    # and narrator, but edge-tts rejects pure-silence input with
-    # ``NoAudioReceived`` (verified 2026-06-10). Workarounds we ruled
-    # out: SSML <break>, filler words (.  / hmm. / uh. / shh.) — all
-    # rejected. The fallback below prepends a short neutral word ("Now")
-    # to the narration which produces a natural ~300-500ms pause between
-    # dialogue and the question. That's enough breathing room for a
-    # test-taker without needing separate silence mp3 frames.
+    # We do NOT insert 1.5s of pure silence — edge-tts rejects every
+    # silent input (.  / SSML break / filler words) with NoAudioReceived.
+    # Instead we use a short, ETS-style prefix that gives a natural
+    # ~300ms pause between the dialogue's last syllable and the
+    # question text:
+    #
+    #   "Question. <题干文本>"
+    #
+    # Rationale: section field is Chinese ("短对话 / 长对话 / 短文"),
+    # which edge-tts pronounces poorly (e.g. "duǎn duì huà" via pinyin)
+    # and would confuse test-takers. Numbering questions ("Question 1")
+    # is meaningless in our one-question-per-audio model. So we read
+    # only the question stem, prefixed with a single word that matches
+    # the standard format used by TOEFL/IELTS official audio.
     tail_bytes = b""
     if narrator_voice and question_text:
-        narration_text = f"Now. {question_text}"
+        narration_text = f"Question. {question_text}"
         narrator_bytes = await _synth_bytes(narrator_voice, rate, narration_text)
         tail_bytes = narrator_bytes
 
